@@ -4,121 +4,120 @@
 # Script Date: 2020-02
 # R Version: 3.6.1
 #
-# State of the Pacific Ocean March 2020
-# swept volume CPUE and genetic stock identification
-# from high seas salmon database for June along migratory corridor  
-# Johnstone Strait, Queen Charlotte Strait and southern Queen Charlotte Sound,
+# State of the Pacific Ocean meeting March 2020
+# CPUE anomalies using swept volume
+# Kriging of CPUE over IPES area in June/July
+# Length to weight residuals
+# Calorimetry results
+# Genetic stock identification
+# from IPES database
+# from high seas salmon database limited spatially
 # see email saved in Input for more details about previous years' info
 #
 #=====================================================================================================
 
 # Load packages
-library(tidyverse) # core data manipulation & visualization
-library(magrittr) # save as same dataframe
-library(RODBC) # database connection to query
-#library(stringr) # string manipulation
-#library(plyr) # used in older code for data manipulation
-library(bootstrap) # error bars
-library(viridis) # colors for color blind people
+library(tidyverse) # data wrangling
+library(magrittr) # save as itself
+library(RODBC) # MS Access databases
+library(cowplot) # combine plots
+library(lubridate) # dates
+library(modelr) # models
+library(viridis) # colors graphs
 
 #####################################
-
 # estalish connection to high sea Access database
-db <- "C:/Users/andersoned/Documents/BCSI/High Seas Salmon Database/HSSALMON.accdb"
-myconn <- odbcConnectAccess2007(db)
+db_hs <- "C:/Users/andersoned/Documents/BCSI/High Seas Salmon Database/HSSALMON.accdb"
+myconn_hs <- odbcConnectAccess2007(db_hs)
 
-#####################################
-# triangle transect
-# create GSI profile along longitudes to see if there is natural break
-
-# parameters for species
-SE <- "'sockeye'"
-CO <- "'coho'"
-CK <- "'chinook'"
-PK <- "'pink'"
-CM <- "'chum'"
-
-# pull triangle transect GSI data in June from Access using query
-triangle_original <- sqlQuery(myconn, "SELECT DNA_CHINOOK_STOCK_ID.FISH_NUMBER, DNA_CHINOOK_STOCK_ID.STOCK_1, DNA_CHINOOK_STOCK_ID.REGION_CODE_1, DNA_CHINOOK_STOCK_ID.REGION_1, DNA_CHINOOK_STOCK_ID.PROB_1, TriangleTransectStations_June.STATION_ID, TriangleTransectStations_June.START_LAT, [START_LONG]*-1 AS START_LONG_NEG, ${CK} AS SPECIES
-FROM (STATION_INFO INNER JOIN TriangleTransectStations_June ON STATION_INFO.STATION_ID = TriangleTransectStations_June.STATION_ID) INNER JOIN (BIOLOGICAL_JUNCTION INNER JOIN DNA_CHINOOK_STOCK_ID ON (BIOLOGICAL_JUNCTION.FISH_NUMBER = DNA_CHINOOK_STOCK_ID.FISH_NUMBER) AND (BIOLOGICAL_JUNCTION.FISH_NUMBER = DNA_CHINOOK_STOCK_ID.FISH_NUMBER)) ON STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID
+# get bridge data from high seas
+bridge_hs_orig <- sqlQuery(myconn_hs, "SELECT STATION_INFO.CRUISE, STATION_INFO.STATION_ID, STATION_INFO.REGION, STATION_INFO.REGION_CODE, STATION_INFO.SYNOPTIC_STATION, BRIDGE.Year, BRIDGE.Month, BRIDGE.Day, BRIDGE.START_LAT, BRIDGE.START_LONG, BRIDGE.DISTANCE, BRIDGE.START_BOT_DEPTH, BRIDGE.END_BOT_DEPTH, BRIDGE.NET_OPENING_WIDTH, BRIDGE.NET_OPENING_HEIGHT, BRIDGE.HEAD_DEPTH, BRIDGE.PK_JUV, BRIDGE.CM_JUV, BRIDGE.SE_JUV, BRIDGE.CO_JUV, BRIDGE.CK_JUV
+FROM STATION_INFO INNER JOIN BRIDGE ON STATION_INFO.STATION_ID = BRIDGE.STATION_ID
+WHERE (((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290))
 UNION
-SELECT DNA_CHUM_STOCK_ID.FISH_NUMBER, DNA_CHUM_STOCK_ID.STOCK_1, DNA_CHUM_STOCK_ID.REGION_CODE_1, DNA_CHUM_STOCK_ID.REGION_1, DNA_CHUM_STOCK_ID.PROB_1, TriangleTransectStations_June.STATION_ID, TriangleTransectStations_June.START_LAT, [START_LONG]*-1 AS START_LONG_NEG, ${CM} AS SPECIES
-FROM DNA_CHUM_STOCK_ID INNER JOIN ((STATION_INFO INNER JOIN TriangleTransectStations_June ON STATION_INFO.STATION_ID = TriangleTransectStations_June.STATION_ID) INNER JOIN BIOLOGICAL_JUNCTION ON STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) ON DNA_CHUM_STOCK_ID.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER
-UNION
-SELECT DNA_COHO_STOCK_ID.FISH_NUMBER, DNA_COHO_STOCK_ID.STOCK_1, DNA_COHO_STOCK_ID.REGION_CODE_1, DNA_COHO_STOCK_ID.REGION_1, DNA_COHO_STOCK_ID.PROB_1, TriangleTransectStations_June.STATION_ID, TriangleTransectStations_June.START_LAT, [START_LONG]*-1 AS START_LONG_NEG, ${CO} AS SPECIES
-FROM DNA_COHO_STOCK_ID INNER JOIN ((STATION_INFO INNER JOIN TriangleTransectStations_June ON STATION_INFO.STATION_ID = TriangleTransectStations_June.STATION_ID) INNER JOIN BIOLOGICAL_JUNCTION ON STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) ON DNA_COHO_STOCK_ID.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER
-UNION
-SELECT DNA_PINK_STOCK_ID.FISH_NUMBER, DNA_PINK_STOCK_ID.STOCK_1, DNA_PINK_STOCK_ID.REGION_CODE_1, DNA_PINK_STOCK_ID.REGION_1, DNA_PINK_STOCK_ID.PROB_1, TriangleTransectStations_June.STATION_ID, TriangleTransectStations_June.START_LAT, [START_LONG]*-1 AS START_LONG_NEG, ${PK} AS SPECIES
-FROM DNA_PINK_STOCK_ID INNER JOIN ((STATION_INFO INNER JOIN TriangleTransectStations_June ON STATION_INFO.STATION_ID = TriangleTransectStations_June.STATION_ID) INNER JOIN BIOLOGICAL_JUNCTION ON STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) ON DNA_PINK_STOCK_ID.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER
-UNION
-SELECT DNA_SOCKEYE_STOCK_ID.FISH_NUMBER, DNA_SOCKEYE_STOCK_ID.STOCK_1, DNA_SOCKEYE_STOCK_ID.REGION_CODE_1, DNA_SOCKEYE_STOCK_ID.REGION_1, DNA_SOCKEYE_STOCK_ID.PROB_1, TriangleTransectStations_June.STATION_ID, TriangleTransectStations_June.START_LAT, [START_LONG]*-1 AS START_LONG_NEG, ${SE} AS SPECIES
-FROM DNA_SOCKEYE_STOCK_ID INNER JOIN ((STATION_INFO INNER JOIN TriangleTransectStations_June ON STATION_INFO.STATION_ID = TriangleTransectStations_June.STATION_ID) INNER JOIN BIOLOGICAL_JUNCTION ON STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) ON DNA_SOCKEYE_STOCK_ID.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER
-;
+SELECT STATION_INFO.CRUISE, STATION_INFO.STATION_ID, STATION_INFO.REGION, STATION_INFO.REGION_CODE, STATION_INFO.SYNOPTIC_STATION, BRIDGE.Year, BRIDGE.Month, BRIDGE.Day, BRIDGE.START_LAT, BRIDGE.START_LONG, BRIDGE.DISTANCE, BRIDGE.START_BOT_DEPTH, BRIDGE.END_BOT_DEPTH, BRIDGE.NET_OPENING_WIDTH, BRIDGE.NET_OPENING_HEIGHT, BRIDGE.HEAD_DEPTH, BRIDGE.PK_JUV, BRIDGE.CM_JUV, BRIDGE.SE_JUV, BRIDGE.CO_JUV, BRIDGE.CK_JUV
+FROM STATION_INFO INNER JOIN BRIDGE ON STATION_INFO.STATION_ID = BRIDGE.STATION_ID
+WHERE (((STATION_INFO.REGION_CODE)='QCST') AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290));
 ")
 
-# remove NAs
-triangle <- triangle_original %>%
-  filter(., !is.na(PROB_1)) %>%
-  
-  # remove rows less than 50% probability
-  filter(PROB_1 > 0.5) 
+# get bio data from high seas
+bio_hs_orig <- sqlQuery(myconn_hs, "SELECT STATION_INFO.REGION_CODE, BRIDGE.STATION_ID, BIOLOGICAL_JUNCTION.FISH_NUMBER, BIOLOGICAL.SHIP_FL, BIOLOGICAL.SHIP_WT
+FROM (STATION_INFO INNER JOIN BRIDGE ON STATION_INFO.STATION_ID = BRIDGE.STATION_ID) INNER JOIN (BIOLOGICAL_JUNCTION INNER JOIN BIOLOGICAL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL.FISH_NUMBER) ON (BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
+WHERE (((STATION_INFO.REGION_CODE)='QCST') AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290))
+UNION
+SELECT STATION_INFO.REGION_CODE, BRIDGE.STATION_ID, BIOLOGICAL_JUNCTION.FISH_NUMBER, BIOLOGICAL.SHIP_FL, BIOLOGICAL.SHIP_WT
+FROM (STATION_INFO INNER JOIN BRIDGE ON STATION_INFO.STATION_ID = BRIDGE.STATION_ID) INNER JOIN (BIOLOGICAL_JUNCTION INNER JOIN BIOLOGICAL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL.FISH_NUMBER) ON (BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
+WHERE (((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290));
+                        ")
 
-# load allocation table
-allocation <- read.csv("Input/stockAllocation3.csv")
+# get calorimetry data from high seas
+cal_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.STATION_ID, BIOLOGICAL_JUNCTION.FISH_NUMBER, CALORIMETRY.HEAT_RELEASED_CAL, CALORIMETRY.HEAT_RELEASED_KJ, CALORIMETRY.DUPLICATE, CALORIMETRY.DATA_ISSUE
+FROM (BRIDGE INNER JOIN BIOLOGICAL_JUNCTION ON BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) INNER JOIN CALORIMETRY ON BIOLOGICAL_JUNCTION.FISH_NUMBER = CALORIMETRY.FISH_NUMBER
+WHERE (((CALORIMETRY.DATA_ISSUE)='N'));
+")
 
-# join to assign stocks to prob dataset
-triangle %<>%
-  left_join(., allocation, by = c("STOCK_1" = "Stock"))
+# get GSI data from high seas
 
-# find stocks within region of origin
-allocateMissing <- triangle %>%
-  filter(., is.na(Origin)) %>%
-  group_by(STOCK_1, REGION_1, SPECIES) %>%
-  dplyr::count(., SPECIES) %>%
-  arrange(desc(n))
+               
 
-#### repeat until allocateMissing has zero data
-### use stock names to search google maps if not in Beacham's supplementary tables
+# close database
+close(myconn_hs)
 
-# drop levels not in data
-triangle$Origin <- droplevels(triangle$Origin)
+#####################################
+# wrangle high seas data
 
-# check to see unique Origins
-unique(triangle$Origin)
+#####################################
+# get IPES data
 
-# relevel factor to have N-S order in plot
-triangle$Origin <- factor(triangle$Origin,
-                          levels = c("North Coast", "Central Coast",
-                                     "ECVI", "Fraser", "South Coast", "Puget Sound", "WCVI",
-                                     "Washington", "Columbia", "Snake", "Oregon"))
+# CPUE data
+# load as csv file since view built on views
+cpue_ipes_orig <- read_csv("Input/2019/JB_VIEW_IPES_CPUE.csv")
 
-# plot 
-ggplot(triangle, aes(x = START_LONG_NEG, fill = Origin)) +
-  geom_histogram(binwidth = 0.05) +
-  facet_wrap(~ SPECIES, nrow = 3, scales = "free_y") +
-  labs(y = "Number of juvenile salmon",
-       x = "Longitude",
-       fill = "Origin",
-       title = "Genetic Stock ID for Triangle Transect") +
-  scale_x_continuous(breaks = c(-129.5, -129.25, -129.0, -128.75, -128.5, -128.25)) +
-  theme_bw()
+# salmon only for CPUE
+cpue_ipes <- cpue_ipes_orig %>%
+  filter(SPECIES_CODE %in% c(108, 112, 115, 118, 124))
 
-# save plot
-ggsave("Output/June_GSI_traingle.png")
+# estalish connection to IPES Access database
+db_ipes <- "C:/Users/andersoned/Documents/GitHub/IPES_Report/Input/2019/IPES_TrawlDB_v19.07f_2017_18_19.mdb"
+myconn_ipes <- odbcConnectAccess2007(db_ipes)
 
-# plot for color blind people
-ggplot(triangle, aes(x = START_LONG_NEG, fill = Origin)) +
-  geom_histogram(binwidth = 0.05) +
-  facet_wrap(~ SPECIES, nrow = 3, scales = "free_y") +
-  labs(y = "Number of juvenile salmon",
-       x = "Longitude",
-       fill = "Origin",
-       title = "Genetic Stock ID for Triangle Transect") +
-  scale_x_continuous(breaks = c(-129.5, -129.25, -129.0, -128.75, -128.5, -128.25)) +
-  scale_fill_viridis_d() +
-  theme_bw()
+cal_ipes_orig <- sqlQuery(myconn_hs, "SELECT CALORIMETRY_IPES.FISH_NUMBER, CALORIMETRY_IPES.HEAT_RELEASED_CAL, CALORIMETRY_IPES.HEAT_RELEASED_KJ, CALORIMETRY_IPES.DUPLICATE, CALORIMETRY_IPES.DATA_ISSUE
+FROM CALORIMETRY_IPES
+WHERE (((CALORIMETRY_IPES.DATA_ISSUE)='N'));
+")
 
-# save plot
-ggsave("Output/June_GSI_traingle_viridis.png")
+
+# close database
+close(myconn_ipes)
+
+#####################################
+
+# get data from IPES
+# wrangle IPES data
+
+
+#####################################
+# CPUE anomalies 
+# species specific changes in abndance
+
+#####################################
+# Kriging to see spatial distribution
+
+#####################################
+# Length to weight residuals as anomalies over time series
+# Condition of salmon
+
+#####################################
+# Calorimetry results
+# Change this presented as anomalies?
+# or just limited years of data
+
+#####################################
+# GSI results for 2019
+
+#####################################
+# display other species 
+# counts or biomass?
+
 
 #####################################
