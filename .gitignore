@@ -40,4 +40,4 @@ vignettes/*.pdf
 
 # folder with data that should not be shared
 /Input
-?Output
+/Output
