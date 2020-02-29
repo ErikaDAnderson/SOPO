@@ -115,7 +115,7 @@ WHERE (((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.Month)='JUN' Or (BRID
                        ")
 
 # get calorimetry data from high seas
-cal_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.YEAR, BRIDGE.STATION_ID, BIOLOGICAL_JUNCTION.FISH_NUMBER, CALORIMETRY.HEAT_RELEASED_CAL, CALORIMETRY.HEAT_RELEASED_KJ, CALORIMETRY.DUPLICATE, CALORIMETRY.DATA_ISSUE
+cal_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.YEAR, BIOLOGICAL_JUNCTION.FISH_NUMBER, CALORIMETRY.HEAT_RELEASED_CAL, CALORIMETRY.HEAT_RELEASED_KJ, CALORIMETRY.DUPLICATE, CALORIMETRY.DATA_ISSUE
 FROM STATION_INFO INNER JOIN ((BRIDGE INNER JOIN BIOLOGICAL_JUNCTION ON BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) INNER JOIN CALORIMETRY ON BIOLOGICAL_JUNCTION.FISH_NUMBER = CALORIMETRY.FISH_NUMBER) ON (STATION_INFO.STATION_ID = BRIDGE.STATION_ID) AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
 WHERE (((CALORIMETRY.DATA_ISSUE)='N') AND ((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.MONTH)='JUN' Or (BRIDGE.MONTH)='JUL') AND ((BRIDGE.HEAD_DEPTH)<22) AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290));
                         ")
@@ -663,15 +663,45 @@ ggsave("Output/2019/LW_Chinook.png")
 #####################################
 # Calorimetry results
 #####################################
+# wrangle IPES data
 
-# wrangle IPES data to correct fish_number
-# join to bio data to limit to usable, daylight tows and juveniles only
+# look at comments for issues
+unique(cal_ipes_orig$COMMENTS)
+
+# join to bio data to limit to usable, daylight tows and juveniles
 cal_ipes <- cal_ipes_orig %>%
-  left_join(., lw_ipes, by = "FISH_NUMBER")
-# average accross duplicates
+  # average accross duplicates
+  group_by(FISH_NUMBER) %>%
+  summarize(HEAT_RELEASED_CAL = mean(HEAT_RELEASED_CAL, na.rm = TRUE),
+            HEAT_RELEASED_KJ = mean(HEAT_RELEASED_KJ, na.rm = TRUE)) %>%
+  ungroup() %>%
+  left_join(., residsLW, by = "FISH_NUMBER") %>%
+  filter(!is.na(SPECIES_CODE))
+
+# wrangle high seas data
+cal_hs <- cal_hs_orig %>%
+  # average accross duplicates
+  group_by(FISH_NUMBER) %>%
+  summarize(HEAT_RELEASED_CAL = mean(HEAT_RELEASED_CAL, na.rm = TRUE),
+            HEAT_RELEASED_KJ = mean(HEAT_RELEASED_KJ, na.rm = TRUE)) %>%
+  ungroup() %>%
+  # add species codes and length and weights
+  left_join(., residsLW, by = "FISH_NUMBER") %>%
+  filter(!is.na(SPECIES_CODE))
+
+# confirm all juveniles using length column
 
 
+# bind data together
+cal <- rbind(cal_hs, cal_ipes)
 
+# compare residuals to heat released values
+ggplot(cal, aes(HEAT_RELEASED_CAL, Residuals, color = Year)) +
+  geom_point() +
+  facet_wrap(~SPECIES_CODE) +
+   theme_bw()
+
+# see condition for all juvenile salmon species
 
 #####################################
 # GSI results for 2019
@@ -679,6 +709,5 @@ cal_ipes <- cal_ipes_orig %>%
 #####################################
 # display other species? 
 # counts or biomass?
-
 
 #####################################
