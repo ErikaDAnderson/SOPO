@@ -31,6 +31,7 @@ library(gstat) # model fit & Krige interpolation
 library(data.table) # bind data frames together from list
 library(raster) # load raster for grid (and predict function, alternative to gstat krige)
 library(modelr) # models length to weight, residuals
+library(rcompanion) # confident intervals
 
 #####################################
 # load IPES data
@@ -803,19 +804,58 @@ cal_hs <- cal_hs_orig %>%
   left_join(., residsLW, by = "FISH_NUMBER") %>%
   filter(!is.na(SPECIES_CODE))
 
-# confirm all juveniles using length column
-
-
 # bind data together
 cal <- rbind(cal_hs, cal_ipes)
 
+# confirm all juveniles using length column
+max(cal$LENGTH)
+
 # compare residuals to heat released values
-ggplot(cal, aes(HEAT_RELEASED_CAL, Residuals, color = Year)) +
+ggplot(data = filter(cal, SPECIES_CODE != 108), 
+                      aes(HEAT_RELEASED_CAL, Residuals, color = Year)) +
   geom_point() +
+  geom_smooth(method = "lm") +
   facet_wrap(~SPECIES_CODE) +
    theme_bw()
 
-# see condition for all juvenile salmon species
+# calculate mean calorimetry results by year and species
+# include confident intervals
+cal_ci <- groupwiseMean(HEAT_RELEASED_CAL ~ SPECIES_CODE + factor(Year),
+              data = cal,
+              conf = 0.95,
+              digits = 3)
+
+# make year amd species as factors
+cal <- cal %>%
+  mutate(YearFac = as.factor(Year),
+         SPECIES_NAME = case_when(
+           SPECIES_CODE == 124 ~ "Chinook",
+           SPECIES_CODE == 112 ~ "Chum",
+           SPECIES_CODE == 115 ~ "Coho",
+           SPECIES_CODE == 118 ~ "Sockeye",
+           SPECIES_CODE == 108 ~ "Pink"))
+
+# graph calorimetry results
+ggplot(data = filter(cal, SPECIES_CODE != 108),
+       aes(x = YearFac, y = HEAT_RELEASED_CAL)) +
+  #geom_boxplot(fill = "darkred") +
+  geom_violin(color = "darkred") +
+  geom_point(color = "darkred") +
+  #geom_jitter(aes(color = YearFac)) +
+   theme_bw() +
+  facet_wrap(~SPECIES_NAME) +
+  theme(panel.grid.minor.y = element_blank(), 
+        panel.grid.major.x = element_blank(), 
+        panel.background = element_rect(fill = "white",colour = "black"),
+        strip.text = element_text(face = "bold", size = 14),
+        axis.title = element_text(face = "bold", size = 14),
+        legend.position = "none") +
+  #scale_color_viridis_d() +
+  labs(x = "Year",
+       y = "Heat Released (calories)")
+
+# save graph
+ggsave("Output/2019/calorimetry.png")
 
 #####################################
 # GSI results for 2019
