@@ -22,7 +22,7 @@ library(here) # to use relative file names
 library(magrittr) # save as same name
 library(lubridate) # dates
 library(RODBC) # MS Access databases
-library(cowplot) # combine plots
+library(egg) # combine plots
 library(viridis) # colors graphs
 library(sf) # spatial manipulation (newer than sp) so works with ggplot2
 library(sp) # spatial data manipulation
@@ -279,8 +279,76 @@ yearTowVec <- c("1998\n(12)", "1999\n(12)", "2000\n(16)", "2001\n(23)", "2002\n(
                 "2010\n(19)", "2011\n(26)", "2012\n(23)","2013\n(16)", "2014\n(7)", "2015\n(33)",
                 "2016\n(0)", "2017\n(54)", "2018\n(91)", "2019\n(68)")
 
+# create function to calculate anomalies for each salmon species
+anom_fn <- function(df, speciesCode) {
+  
+  cpue_select <- cpue %>%
+    filter(SPECIES_CODE == speciesCode) %>%
+    group_by(TRIP_YEAR) %>%
+    summarize(meanCPUE = mean(logCPUE1, na.rm = TRUE)) %>%
+    ungroup() 
+  
+  # calculate mean and standard deviation for this time series
+  meanCPUE_ts <- mean(cpue_select$meanCPUE, na.rm = TRUE)
+  sdCPUE_ts <- sd(cpue_select$meanCPUE, na.rm = TRUE)
+  
+  # calculate anomalies
+  cpue_select <- cpue_select %>%
+    mutate(anom = (meanCPUE - meanCPUE_ts)/sdCPUE_ts,
+           speciesCol = case_when(
+             speciesCode == 108 ~ "Pink",
+             speciesCode == 112 ~ "Chum",
+             speciesCode == 115 ~ "Coho",
+             speciesCode == 118 ~ "Sockeye",
+             speciesCode == 124 ~ "Chinook"))
+  
+  # make year factor for nice graph
+  cpue_select$Year_fac <- as.factor(cpue_select$TRIP_YEAR)
+  cpue_select$Year_fac <- factor(cpue_select$Year_fac, 
+                                 levels = c("1998", "1999", "2000", "2001", "2002", "2003", "2004", "2005",
+                                            "2006", "2007", "2008", "2009", "2010", "2011", "2012",
+                                            "2013", "2014", "2015", "2016", "2017", "2018", "2019"))
+
+  return(cpue_select)
+  
+}
+
+# apply function to species
+cpuePK_df <- anom_fn(cpue, 108)
+cpueCM_df <- anom_fn(cpue, 112)
+cpueCO_df <- anom_fn(cpue, 115)
+cpueCK_df <- anom_fn(cpue, 124)
+cpueSE_df <- anom_fn(cpue, 118)
+
+# bind together
+cpue_df <- rbind(cpueCK_df, cpueCO_df, cpueCM_df, cpuePK_df, cpueSE_df)
+
+# graph
+ggplot(cpue_df, aes(x = Year_fac, y = anom)) +
+  geom_bar(stat = "identity", fill = "darkred") +
+  theme_bw() +
+  geom_hline(yintercept = 0) +
+  #geom_hline(yintercept = c(-1, 1), linetype = "dashed") +
+  facet_wrap(~speciesCol) +
+  labs(x = "Ocean Sample Year",
+       y = "ln(CPUE + 1) Anomalies") +
+  theme(title = element_text(face = "bold", size = 14)) +
+  geom_vline(xintercept = c(11, 19), linetype = "dotted") +
+  ylim(-2, 2) +
+  scale_x_discrete(drop = FALSE) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title = element_text(face = "bold", size = 14),
+        panel.grid.minor.y = element_blank(), 
+        panel.grid.major.x = element_blank(), 
+        panel.background = element_rect(fill = "white",colour = "black"),
+        strip.text = element_text(size = 14)) 
+
+ggsave(str_c("Output/2019/CPUE_AllSpecies.png"))
+
+############################################
+
 # create function to make anomalies graph for each salmon species
-anom_fn <- function(df, speciesCode, speciesName, yearTowVec, tows_ipes) {
+anom_ind_fn <- function(df, speciesCode, speciesName, yearTowVec, tows_ipes) {
 
   cpue_select <- cpue %>%
     filter(SPECIES_CODE == speciesCode) %>%
@@ -326,15 +394,15 @@ anom_fn <- function(df, speciesCode, speciesName, yearTowVec, tows_ipes) {
 }
 
 # apply function to species
-cpuePK_plot <- anom_fn(cpue, 108, "Pink", yearTowVec, tows_ipes)
+cpuePK_plot <- anom_ind_fn(cpue, 108, "Pink", yearTowVec, tows_ipes)
 cpuePK_plot
-cpueCM_plot <- anom_fn(cpue, 112, "Chum", yearTowVec, tows_ipes)
+cpueCM_plot <- anom_ind_fn(cpue, 112, "Chum", yearTowVec, tows_ipes)
 cpueCM_plot
-cpueCO_plot <- anom_fn(cpue, 115, "Coho", yearTowVec, tows_ipes)
+cpueCO_plot <- anom_ind_fn(cpue, 115, "Coho", yearTowVec, tows_ipes)
 cpueCO_plot
-cpueCK_plot <- anom_fn(cpue, 124, "Chinook", yearTowVec, tows_ipes)
+cpueCK_plot <- anom_ind_fn(cpue, 124, "Chinook", yearTowVec, tows_ipes)
 cpueCK_plot
-cpueSE_plot <- anom_fn(cpue, 118, "Sockeye", yearTowVec, tows_ipes)
+cpueSE_plot <- anom_ind_fn(cpue, 118, "Sockeye", yearTowVec, tows_ipes)
 cpueSE_plot
 
 #####################################
@@ -463,13 +531,13 @@ speciesVec <- c(112, 115, 118, 124)
         TheSurface <- as.data.frame(TheSurface)
         
         # create title for plot
-        plotTitle <- str_c(nameDf, " 2019 Distribution")
+        plotTitle <- str_c(nameDf, " Distribution")
         
         # print to console
         print(plotTitle)
         
         # plot the individual interpolation surfaces
-      ggplot() +
+      plot <- ggplot() +
           geom_path(data = coast, aes(x = long, y = lat, group = group)) +
           geom_tile(data = TheSurface, 
                     aes(x = x, y = y, fill = var1.pred)) + 
@@ -480,16 +548,30 @@ speciesVec <- c(112, 115, 118, 124)
           theme_bw() +
           theme(legend.position = "none") +
           labs(title = plotTitle,
-               x = "Longitude",
-               y = "Latitude") 
+               x = "",
+               y = "") 
         
         plotName <- paste0(OutputFolder, "/Kriging", i, ".png")
         
-        ggsave(plotName)
+        ggsave(plotName, plot)
         
         # add new data frame to list
-        mylist[[nameDf]] <- TheSurface
-      }
+        mylist[[nameDf]] <- plot
+    }
+
+# pull out of list
+krig_cm <- mylist[["Chum"]]
+krig_co <- mylist[["Coho"]]
+krig_se <- mylist[["Sockeye"]]
+krig_ck <- mylist[["Chinook"]]
+
+# add Kriging plots together
+krig_all <- egg::ggarrange(krig_ck, krig_cm, krig_co, krig_se)
+krig_all
+
+# save combined plot
+ggsave(str_c(OutputFolder, "/Kriging_All.png"), krig_all)
+# copy from R window to avoid introducing white margins to plot for power point
 
 #####################################
 # Length to weight residuals 
@@ -659,6 +741,38 @@ boxplot_ck +
                               "2014\n(0)", "2015\n(71)", "2016\n(0)", "2017\n(37)", "2018\n(60)", "2019\n(85)"))
 
 ggsave("Output/2019/LW_Chinook.png")
+
+# graph LW as boxplots facted for presentation
+# no tow numbers included
+# use species names as facet titles
+
+# add species Name
+# remove pink since no pink in 2019
+residsLW_all <- residsLW %>%
+  filter(SPECIES_CODE != 108) %>%
+  mutate(SPECIES_NAME = case_when(
+    SPECIES_CODE == 124 ~ "Chinook",
+    SPECIES_CODE == 112 ~ "Chum",
+    SPECIES_CODE == 115 ~ "Coho",
+    SPECIES_CODE == 118 ~ "Sockeye",
+    SPECIES_CODE == 108 ~ "Pink"))
+
+
+  # graph
+  ggplot(data = residsLW_all, aes(x = Year, y = Residuals, group = Year)) + 
+    geom_boxplot(fill = "darkred") + 
+    facet_wrap(~SPECIES_NAME) +
+    labs(x = "Ocean Sample Year") +
+    geom_hline(yintercept = 0, color = "black", size = 1) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    theme(panel.grid.minor.y = element_blank(), 
+          panel.grid.major.x = element_blank(), 
+          panel.background = element_rect(fill = "white",colour = "black"),
+          strip.text = element_text(size = 14)) 
+
+# # combine all LW plots
+# lw_all <- egg::ggarrange(boxplot_ck, boxplot_cm, boxplot_co, boxplot_se)
 
 #####################################
 # Calorimetry results
