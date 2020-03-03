@@ -11,7 +11,7 @@
 # Calorimetry results
 # Genetic stock identification
 # from IPES database since 2017
-# from high seas salmon database limited to same area and June/July August?
+# from high seas salmon database limited to same area and June/July
 # see email saved in Input for more details about previous year
 #
 #=====================================================================================================
@@ -40,7 +40,10 @@ library(rcompanion) # confident intervals
 # CPUE data
 # load as csv file since view built on views
 # use for swept volume and join to catch
-volume_ipes_orig <- read_csv("Input/2019/EA_JB_VIEW_IPES_CPUE.csv")
+#volume_ipes_orig <- read_csv("Input/2019/EA_JB_VIEW_IPES_CPUE.csv")
+
+# adjustments to view based on target depth averages instead of overall averages
+volume_ipes_orig <- read_csv("Input/2019/JB_VIEW_IPES_CPUE2.csv")
 
 # estalish connection to IPES Access database
 db_ipes <- "C:/Users/andersoned/Documents/GitHub/IPES_Report/Input/2019/IPES_TrawlDB_v19.07f_2017_18_19.mdb"
@@ -573,6 +576,55 @@ krig_all
 # save combined plot
 ggsave(str_c(OutputFolder, "/Kriging_All.png"), krig_all)
 # copy from R window to avoid introducing white margins to plot for power point
+
+#####################################
+# Map IPES and high seas tows
+#####################################
+# use CPUE to map tows from high seas and IPES
+
+# plot the high seas tows
+map_hs <- ggplot() +
+  geom_path(data = coast, aes(x = long, y = lat, group = group)) +
+  geom_point(data = cpue_hs, 
+            aes(x = START_LONGITUDE, y = START_LATITUDE),
+            color = "darkred") + 
+  coord_equal() +
+  xlim(-129.5, -123.5) +
+  ylim(48, 51.5) +
+  theme_bw() +
+  theme(legend.position = "none",
+        panel.grid.minor = element_blank(), 
+        panel.grid.major = element_blank(), 
+        panel.background = element_rect(fill = "white",colour = "black"),
+        title = element_text(face = "bold", size = 14)) +
+  labs(title = "High Seas Salmon 1998-2018",
+       x = "",
+       y = "") 
+
+ggsave("Output/2019/HS_Tows.png", map_hs)
+
+# plot the IPES tows facet by year
+map_ipes <- ggplot() +
+  geom_path(data = coast, aes(x = long, y = lat, group = group)) +
+  geom_point(data = cpue_ipes, 
+             aes(x = START_LONGITUDE, y = START_LATITUDE, color = factor(TRIP_YEAR))) + 
+  coord_equal() +
+  xlim(-129.5, -123.5) +
+  ylim(48, 51.5) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major = element_blank(), 
+        panel.background = element_rect(fill = "white",colour = "black"),
+        title = element_text(face = "bold", size = 14)) +
+  labs(title = "IPES 2017-2019",
+       x = "",
+       y = "",
+       color = "Year") 
+
+ggsave("Output/2019/IPES_Tows.png", map_ipes)
+
+map_both <- egg::ggarrange(map_hs, map_ipes, nrow = 1)
+
 
 #####################################
 # Length to weight residuals 
