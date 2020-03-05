@@ -32,6 +32,7 @@ library(data.table) # bind data frames together from list
 library(raster) # load raster for grid (and predict function, alternative to gstat krige)
 library(modelr) # models length to weight, residuals
 library(rcompanion) # confident intervals
+library(readxl) # read excel files for GSI
 
 #####################################
 # load IPES data
@@ -39,11 +40,11 @@ library(rcompanion) # confident intervals
 
 # CPUE data
 # load as csv file since view built on views
-# use for swept volume and join to catch
-#volume_ipes_orig <- read_csv("Input/2019/EA_JB_VIEW_IPES_CPUE.csv")
+# use for swept volume and join to catch 
+# use BRIDGE_FIELD_ID becuase different database version
 
 # adjustments to view based on target depth averages instead of overall averages
-volume_ipes_orig <- read_csv("Input/2019/JB_VIEW_IPES_CPUE2.csv")
+volume_ipes_orig <- read_csv("Input/2019/JB_VIEW_IPES_CPUE_BRIDGE_LOG_FIELD_ID.csv")
 
 # estalish connection to IPES Access database
 db_ipes <- "C:/Users/andersoned/Documents/GitHub/IPES_Report/Input/2019/IPES_TrawlDB_v19.07f_2017_18_19.mdb"
@@ -54,7 +55,7 @@ FROM TRIP LEFT JOIN BRIDGE_LOG ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
 WHERE (((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((BRIDGE_LOG.USABILITY_CODE)<>5));
                           ")
 # limited to daylight, usable tows within IPES area
-cpue_ipes_orig <- sqlQuery(myconn_ipes, "SELECT BRIDGE_LOG.BRIDGE_LOG_ID, TRIP.TRIP_NAME, BRIDGE_LOG.EVENT_NUMBER, BRIDGE_LOG.EVENT_TYPE, BRIDGE_LOG.START_LATITUDE, BRIDGE_LOG.START_LONGITUDE, BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.STRATUM, CATCH.SPECIES_CODE, CATCH.JUVENILE_CATCH_COUNT, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, BRIDGE_LOG.USABILITY_CODE
+cpue_ipes_orig <- sqlQuery(myconn_ipes, "SELECT BRIDGE_LOG.BRIDGE_LOG_ID, BRIDGE_LOG.BRIDGE_LOG_FIELD_ID, TRIP.TRIP_NAME, BRIDGE_LOG.EVENT_NUMBER, BRIDGE_LOG.EVENT_TYPE, BRIDGE_LOG.START_LATITUDE, BRIDGE_LOG.START_LONGITUDE, BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.STRATUM, CATCH.SPECIES_CODE, CATCH.JUVENILE_CATCH_COUNT, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, BRIDGE_LOG.USABILITY_CODE
 FROM TRIP INNER JOIN (BRIDGE_LOG LEFT JOIN CATCH ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
 WHERE (((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((BRIDGE_LOG.USABILITY_CODE)<>5));
        ")
@@ -64,7 +65,11 @@ lw_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, SPECIMEN.UNIVERSAL
 FROM TRIP LEFT JOIN ((BRIDGE_LOG LEFT JOIN CATCH ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) LEFT JOIN SPECIMEN ON CATCH.CATCH_ID = SPECIMEN.CATCH_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
 WHERE (((CATCH.SPECIES_CODE)='108' Or (CATCH.SPECIES_CODE)='112' Or (CATCH.SPECIES_CODE)='115' Or (CATCH.SPECIES_CODE)='118' Or (CATCH.SPECIES_CODE)='124') AND ((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((BRIDGE_LOG.USABILITY_CODE)<>5));
                          ")
-
+# GSI data from IPES for 2019
+gsi_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, SPECIMEN_COLLECTED.COLLECTED_ATTRIBUTE_CODE, SPECIMEN_COLLECTED.STORAGE_CONTAINER_SUB_ID, CATCH.SPECIES_CODE, BRIDGE_LOG.BRIDGE_LOG_ID, BRIDGE_LOG.BRIDGE_LOG_FIELD_ID, BRIDGE_LOG.TRIP_ID, BRIDGE_LOG.EVENT_DATE, BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.USABILITY_CODE, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, SPECIMEN.LENGTH
+FROM TRIP LEFT JOIN (BRIDGE_LOG LEFT JOIN (CATCH LEFT JOIN (SPECIMEN LEFT JOIN SPECIMEN_COLLECTED ON SPECIMEN.SPECIMEN_ID = SPECIMEN_COLLECTED.SPECIMEN_ID) ON CATCH.CATCH_ID = SPECIMEN.CATCH_ID) ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
+WHERE (((TRIP.TRIP_YEAR)=2019) AND ((SPECIMEN_COLLECTED.COLLECTED_ATTRIBUTE_CODE)=4) AND ((CATCH.SPECIES_CODE)='115' Or (CATCH.SPECIES_CODE)='118' Or (CATCH.SPECIES_CODE)='124') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((BRIDGE_LOG.USABILITY_CODE)<>5) AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((SPECIMEN.LENGTH)<350));
+                          ")
 # close database
 close(myconn_ipes)
 
@@ -82,14 +87,14 @@ volume_ipes <- volume_ipes_orig %>%
   filter(BLOCK_DESIGNATION > 0) %>%
   filter(DayNight == "Day") %>%
   filter(USABILITY_CODE == 1) %>%
-  distinct(BRIDGE_LOG_ID, TRIP_NAME, EVENT_NUMBER, EVENT_TYPE, BLOCK_DESIGNATION, STRATUM,
+  distinct(BRIDGE_LOG_ID, BRIDGE_LOG_FIELD_ID, TRIP_NAME, EVENT_NUMBER, EVENT_TYPE, BLOCK_DESIGNATION, STRATUM,
          OfficialVolumeSwept_km3)
 
 # select salmon 
 # calculate CPUE by swept volume
 cpue_ipes_salmon <- cpue_ipes_orig %>%
   filter(SPECIES_CODE %in% c(108, 112, 115, 118, 124)) %>%
-  left_join(., volume_ipes, by = c("BRIDGE_LOG_ID", "TRIP_NAME", "EVENT_NUMBER", 
+  left_join(., volume_ipes, by = c("BRIDGE_LOG_ID", "BRIDGE_LOG_FIELD_ID", "TRIP_NAME", "EVENT_NUMBER", 
                                         "EVENT_TYPE", "BLOCK_DESIGNATION", "STRATUM")) %>%
   mutate(EVENT = str_c(TRIP_NAME, str_pad(EVENT_NUMBER, 3, side = "left", pad = 0), sep = "-"),
          CPUE = JUVENILE_CATCH_COUNT, 
@@ -129,18 +134,6 @@ cal_ipes_orig <- sqlQuery(myconn_hs, "SELECT CALORIMETRY_IPES.FISH_NUMBER, CALOR
 FROM CALORIMETRY_IPES
 WHERE (((CALORIMETRY_IPES.DATA_ISSUE)='N'));
                           ")
-
-
-# # get GSI data from high seas
-# 
-# 
-# # calorimetry data for IPES is stored in high seas
-# cal_ipes_orig <- sqlQuery(myconn_hs, "SELECT CALORIMETRY_IPES.FISH_NUMBER, CALORIMETRY_IPES.HEAT_RELEASED_CAL, CALORIMETRY_IPES.HEAT_RELEASED_KJ, CALORIMETRY_IPES.DUPLICATE, CALORIMETRY_IPES.DATA_ISSUE
-# FROM CALORIMETRY_IPES
-# WHERE (((CALORIMETRY_IPES.DATA_ISSUE)="N"));
-#")
-
-
 # close database
 close(myconn_hs)
 
@@ -150,23 +143,37 @@ close(myconn_hs)
 
 # check for empty net dimensions and distance values
 missing_hs <- cpue_hs_orig %>%
-  filter(is.na(NET_OPENING_WIDTH)| is.na(NET_OPENING_HEIGHT)| is.na(DISTANCE))
+  filter(is.na(NET_OPENING_WIDTH)| is.na(NET_OPENING_HEIGHT) | is.na(DISTANCE))
+
+# pull vector of cruises with missing info
+missing_hs_vec <- missing_hs %>%
+  pull(CRUISE)
 
 #### all missing from cruise 201893 
-# use Sea Crest values from gear comparison 
-# according to head depth
 # no missing distance values
+
+# caluculate net averages for cruises at specific headrope depths
+hs_net_avg <- cpue_hs_orig %>%
+  group_by(CRUISE, HEAD_DEPTH) %>%
+  summarize(AvgNET_OPENING_WIDTH = mean(NET_OPENING_WIDTH, na.rm = TRUE),
+            AvgNET_OPENING_HEIGHT = mean(NET_OPENING_HEIGHT, na.rm = TRUE)) %>%
+  filter(CRUISE %in% missing_hs_vec)
+
+# use Sea Crest net width and height from gear comparison for HEAD_DEPTH = 0
+# same vessel, Captain and net although the chain links etc were different
+# use average of 10.6 for headrope ~ 15 m
+
 
 # replace missing net values
 cpue_hs_net <- cpue_hs_orig %>%
   mutate(NET_OPENING_WIDTH = case_when(
     !(is.na(NET_OPENING_WIDTH)) ~ NET_OPENING_WIDTH,
-      is.na(NET_OPENING_WIDTH) & HEAD_DEPTH <= 7 ~ 41,
+      is.na(NET_OPENING_WIDTH) & HEAD_DEPTH <= 7 ~ 41, # from gear comparison study
       is.na(NET_OPENING_WIDTH) & HEAD_DEPTH > 7 ~ 47),
     NET_OPENING_HEIGHT = case_when(
       !(is.na(NET_OPENING_HEIGHT)) ~ NET_OPENING_HEIGHT,
-        is.na(NET_OPENING_HEIGHT) & HEAD_DEPTH <= 7 ~ 19,
-        is.na(NET_OPENING_HEIGHT) & HEAD_DEPTH > 7 ~ 13),
+        is.na(NET_OPENING_HEIGHT) & HEAD_DEPTH <= 7 ~ 19, # from gear comparison study
+        is.na(NET_OPENING_HEIGHT) & HEAD_DEPTH > 7 ~ 11), # average from same cruise rounded
     NET_AREA_KM = (NET_OPENING_WIDTH/1000) * (NET_OPENING_HEIGHT/1000),
     DISTANCE_KM = DISTANCE * 1.852,
     SWEPT_VOLUME = NET_AREA_KM*DISTANCE_KM)
@@ -342,10 +349,10 @@ ggplot(cpue_df, aes(x = Year_fac, y = anom)) +
   scale_x_discrete(drop = FALSE) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1),
         axis.title = element_text(face = "bold", size = 14),
+        strip.text = element_text(size = 14),
         panel.grid.minor.y = element_blank(), 
         panel.grid.major.x = element_blank(), 
-        panel.background = element_rect(fill = "white",colour = "black"),
-        strip.text = element_text(size = 14)) 
+        panel.background = element_rect(fill = "white",colour = "black")) 
 
 ggsave(str_c("Output/2019/CPUE_AllSpecies.png"))
 
@@ -623,8 +630,8 @@ map_ipes <- ggplot() +
 
 ggsave("Output/2019/IPES_Tows.png", map_ipes)
 
-map_both <- egg::ggarrange(map_hs, map_ipes, nrow = 1)
-
+map_both <- egg::ggarrange(map_hs, map_ipes, 
+                           nrow = 1)
 
 #####################################
 # Length to weight residuals 
@@ -822,7 +829,8 @@ residsLW_all <- residsLW %>%
     theme(panel.grid.minor.y = element_blank(), 
           panel.grid.major.x = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black"),
-          strip.text = element_text(size = 14)) 
+          strip.text = element_text(size = 14),
+          axis.title = element_text(face = "bold", size = 14)) 
 
 # # combine all LW plots
 # lw_all <- egg::ggarrange(boxplot_ck, boxplot_cm, boxplot_co, boxplot_se)
@@ -911,9 +919,199 @@ ggsave("Output/2019/calorimetry.png")
 
 #####################################
 # GSI results for 2019
-
 #####################################
-# display other species? 
+# Note that there were no GSI data from high seas database
+# The June survey was loaded into IPES
+# the October survey within high seas is not included
+
+# load chinook data for 2019
+gsi_ck_orig <- read_excel("Input/2019/chinookBCSI_2019_2020-03-02.xlsx",
+                          sheet = "Individual IDs",
+                          skip = 3)
+
+reg_ck_orig <- read_excel("Input/2019/chinookBCSI_2019_2020-03-02.xlsx",
+                     sheet = "Regional",
+                     skip = 11)
+
+# wrangle region data
+reg_ck <- reg_ck_orig %>%
+  mutate(Region_Code_1 = as.character(Code)) %>%
+  dplyr::select(Region_Code_1, Region1)
+
+# wrangle chinook data
+gsi_ck <- gsi_ck_orig %>%
+  # remove rows between samples and empty rows
+  filter(Fish != "2019") %>%
+  filter(Stock...3 != "2019") %>%
+  rename(Stock = Stock...3,
+         Region_Code_1 = Region...4,
+         Prob_1 = `Prob 1`) %>%
+  dplyr::select(Fish, Stock, Region_Code_1, Prob_1) %>%
+  filter(Prob_1 > 0.5) %>%
+  left_join(reg_ck, by = "Region_Code_1") %>%
+  mutate(DNA_NUMBER = as.numeric(str_extract(Fish, "[0-9]+$")),
+         BATCH_NUMBER = str_extract(Fish, "#[0-9]+"),
+         BATCH_NUMBER = str_extract(BATCH_NUMBER, "[0-9]+"),
+         BATCH_DNA_NUMBER = str_c(BATCH_NUMBER, DNA_NUMBER, 
+                                  sep = "-"))
+
+# limit to 2019 only for SOPO
+gsi_ck_2019 <- gsi_ck %>%
+  filter(BATCH_NUMBER != 68) %>%
+  # join to sampling info to limit to usable, day, IPES area tows
+  inner_join(gsi_ipes_orig, by = c("DNA_NUMBER" = "STORAGE_CONTAINER_SUB_ID")) 
+
+# get number of samples for chinook
+nCk <- nrow(gsi_ck_2019)
+
+# relevel region for graph
+gsi_ck_2019$Region1 <- factor(gsi_ck_2019$Region1,
+                               levels = c("Snake-Sp/Su", "Up Col-Su/F", "Up Col-Sp",
+                                 "North & Central Oregon", "WCVI", "Puget Sound"))
+
+# graph it
+gsiPlot_ck <- ggplot(gsi_ck_2019, 
+       aes(x = Region1)) +
+  geom_bar(fill = "darkred") +
+  labs(x = " ",
+       y = " ",
+       title = "Chinook GSI in June and July 2019",
+       caption = str_c("n = ", nCk)) +
+  theme_bw() +
+  theme(title = element_text(face = "bold", size = 14),
+        axis.title = element_text(face = "bold", size = 14),
+        strip.text = element_text(size = 14)) +
+  scale_fill_viridis_d()
+gsiPlot_ck
+
+# load coho Snp data
+gsi_co_orig1 <- read_excel("Input/2019/PID20190082_BCSI_B74(19)_2019-10-11.xlsx",
+                           sheet = "collection_table_ids")
+
+# load coho Snp data
+gsi_co_orig2 <- read_excel("Input/2019/PID20190108_BCSI_B74(19)_2_sc239_2019-12-02.xlsx",
+                           sheet = "collection_table_ids")
+
+# load regional data
+reg_co_orig <- read_excel("Input/2019/PID20190108_BCSI_B74(19)_2_sc239_2019-12-02.xlsx",
+                          sheet = "repunits_estimates",
+                          skip = 6)
+
+# tidy regional data for Coho
+reg_co <- reg_co_orig %>%
+  dplyr::select(repunit, CU_NAME, Country)
+
+# add vial column into first data set
+gsi_co_orig1 <- gsi_co_orig1 %>%
+  mutate(vial = as.numeric(str_extract(indiv, "[0-9]+$"))) %>%
+  dplyr::select(indiv, vial, everything())
+
+# bind coho data together for 2019  
+gsi_co_orig <- rbind(gsi_co_orig1, gsi_co_orig2)
+
+# wrangle coho data
+gsi_co <- gsi_co_orig %>%
+  dplyr::select(indiv, vial, repunit.1, collection.1, prob.1) %>%
+  rename(Fish = indiv,
+         DNA_NUMBER = vial,
+         Region = repunit.1,
+         Stock = collection.1) %>%
+  mutate(BATCH_NUMBER = 74,
+         BATCH_DNA_NUMBER = str_c(BATCH_NUMBER, DNA_NUMBER,
+                                  sep = "-")) %>%
+  left_join(., reg_co, by = c("Region" = "repunit")) %>%
+  filter(prob.1 > 0.5) %>%
+  # limit to daylight tows from IPES area with juvenile lengths
+  inner_join(., gsi_ipes_orig, by = c("DNA_NUMBER" = "STORAGE_CONTAINER_SUB_ID"))
+
+# get number of samples
+nCo <- nrow(gsi_co)
+
+# relevel region for graph
+gsi_co$Region <- factor(gsi_co$Region,
+                              levels = c("CR", "HOOD", "EVI+GStr", "JdF",
+                                          "OR", "NOOK", "DOUG", "Nahwitti", 
+                                         "CLAY", "SC+SFj"))
+
+# graph it
+gsiPlot_co <- ggplot(gsi_co, 
+                     aes(x = Region)) +
+  geom_bar(fill = "darkred") +
+  labs(x = " ",
+       y = "Count",
+       title = "Coho GSI in June and July 2019",
+       caption = str_c("n = ", nCo)) +
+  theme_bw() +
+  theme(title = element_text(face = "bold", size = 14),
+        axis.title = element_text(face = "bold", size = 14),
+        strip.text = element_text(size = 14)) +
+  scale_fill_viridis_d()
+gsiPlot_co  
+
+# load sockeye gsi data
+gsi_se_orig <- read_excel("Input/2019/sockeyeBCSIBatch75(19)_2019-11-28.xlsx",
+                          sheet = "Individual IDs",
+                          skip = 3)
+
+# load SE region data
+reg_se_orig <- read_excel("Input/2019/sockeyeBCSIBatch75(19)_2019-11-28.xlsx",
+                          sheet = "Regional",
+                          skip = 11)
+
+# wrangle region data
+reg_se <- reg_se_orig %>%
+  mutate(Region_Code_1 = as.character(Code)) %>%
+  dplyr::select(Region_Code_1, Region1)
+
+# wrangle sockeye data
+gsi_se <- gsi_se_orig %>%
+  # remove rows between samples and empty rows
+  filter(Fish != "2019") %>%
+  filter(Stock...3 != "2019") %>%
+  rename(Stock = Stock...3,
+         Region_Code_1 = Region...4,
+         Prob_1 = `Prob 1`) %>%
+  dplyr::select(Fish, Stock, Region_Code_1, Prob_1) %>%
+  filter(Prob_1 > 0.5) %>%
+  left_join(reg_se, by = "Region_Code_1") %>%
+  mutate(DNA_NUMBER = as.numeric(str_extract(Fish, "[0-9]+$")),
+         # looked at data and it is all batch 75
+         BATCH_NUMBER = 75,
+         BATCH_NUMBER = str_extract(BATCH_NUMBER, "[0-9]+"),
+         BATCH_DNA_NUMBER = str_c(BATCH_NUMBER, DNA_NUMBER, 
+                                  sep = "-"))
+
+# join to sampling info to limit to usable, day, IPES area tows
+gsi_se_2019 <- gsi_se %>%
+  inner_join(gsi_ipes_orig, by = c("DNA_NUMBER" = "STORAGE_CONTAINER_SUB_ID")) 
+
+# get number of samples fof chinook
+nSe <- nrow(gsi_se_2019)
+
+# relevel region for graph
+gsi_se_2019$Region1 <- factor(gsi_se_2019$Region1,
+                              levels = c("VI", "Summer(Fr)", 
+                                         "Washington", "Early Summer(Fr)"))
+# graph it
+gsiPlot_se <- ggplot(gsi_se_2019, 
+                     aes(x = Region1)) +
+  geom_bar(fill = "darkred") +
+  labs(x = "Region of Origin",
+       y = " ",
+       title = "Sockeye GSI in June and July 2019",
+       caption = str_c("n = ", nSe)) +
+  theme_bw() +
+  theme(title = element_text(face = "bold", size = 14),
+        axis.title = element_text(face = "bold", size = 14),
+        strip.text = element_text(size = 14)) +
+  scale_fill_viridis_d()
+gsiPlot_se
+
+# plot gsi together
+gsi_all <- egg::ggarrange(gsiPlot_ck, gsiPlot_co, gsiPlot_se)
+gsi_all
+#####################################
+# Other species? 
 # counts or biomass?
 
 #####################################
