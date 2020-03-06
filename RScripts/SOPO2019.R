@@ -11,8 +11,9 @@
 # Calorimetry results
 # Genetic stock identification
 # from IPES database since 2017
-# from high seas salmon database limited to same area and June/July
+# from high seas salmon database limited to same area in June/July only
 # see email saved in Input for more details about previous year
+# daynight definition needed to be changed slightly since two tows started at 9:55 pm
 #
 #=====================================================================================================
 
@@ -43,33 +44,71 @@ library(readxl) # read excel files for GSI
 # use for swept volume and join to catch 
 # use BRIDGE_FIELD_ID becuase different database version
 
-# adjustments to view based on target depth averages instead of overall averages
+# March 2020 adjustments to view based on target depth averages instead of overall averages
+# from IPES_TrawlBC_v20.02b database 
 volume_ipes_orig <- read_csv("Input/2019/JB_VIEW_IPES_CPUE_BRIDGE_LOG_FIELD_ID.csv")
 
 # estalish connection to IPES Access database
+# used IPES Report Version since has extra GSI table that I included
 db_ipes <- "C:/Users/andersoned/Documents/GitHub/IPES_Report/Input/2019/IPES_TrawlDB_v19.07f_2017_18_19.mdb"
 myconn_ipes <- odbcConnectAccess2007(db_ipes)
 
-tows_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, BRIDGE_LOG.EVENT_TYPE, BRIDGE_LOG.START_LATITUDE, BRIDGE_LOG.START_LONGITUDE, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.STRATUM, BRIDGE_LOG.USABILITY_CODE
+tows_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, BRIDGE_LOG.EVENT_TYPE, 
+BRIDGE_LOG.START_LATITUDE, BRIDGE_LOG.START_LONGITUDE, 
+IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 Or 
+DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, 
+BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.STRATUM, BRIDGE_LOG.USABILITY_CODE
 FROM TRIP LEFT JOIN BRIDGE_LOG ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
-WHERE (((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((BRIDGE_LOG.USABILITY_CODE)<>5));
+WHERE (((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND 
+((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 
+Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') 
+AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((BRIDGE_LOG.USABILITY_CODE)<>5));
                           ")
 # limited to daylight, usable tows within IPES area
-cpue_ipes_orig <- sqlQuery(myconn_ipes, "SELECT BRIDGE_LOG.BRIDGE_LOG_ID, BRIDGE_LOG.BRIDGE_LOG_FIELD_ID, TRIP.TRIP_NAME, BRIDGE_LOG.EVENT_NUMBER, BRIDGE_LOG.EVENT_TYPE, BRIDGE_LOG.START_LATITUDE, BRIDGE_LOG.START_LONGITUDE, BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.STRATUM, CATCH.SPECIES_CODE, CATCH.JUVENILE_CATCH_COUNT, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, BRIDGE_LOG.USABILITY_CODE
-FROM TRIP INNER JOIN (BRIDGE_LOG LEFT JOIN CATCH ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
-WHERE (((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((BRIDGE_LOG.USABILITY_CODE)<>5));
+cpue_ipes_orig <- sqlQuery(myconn_ipes, "SELECT BRIDGE_LOG.BRIDGE_LOG_ID, BRIDGE_LOG.BRIDGE_LOG_FIELD_ID, 
+TRIP.TRIP_NAME, BRIDGE_LOG.EVENT_NUMBER, BRIDGE_LOG.EVENT_TYPE, BRIDGE_LOG.START_LATITUDE, 
+BRIDGE_LOG.START_LONGITUDE, BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.STRATUM, CATCH.SPECIES_CODE, 
+CATCH.JUVENILE_CATCH_COUNT, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 Or 
+DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, BRIDGE_LOG.USABILITY_CODE
+FROM TRIP INNER JOIN (BRIDGE_LOG LEFT JOIN CATCH ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) 
+ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
+WHERE (((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND 
+((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 Or 
+DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND 
+((BRIDGE_LOG.USABILITY_CODE)<>5));
        ")
 
 # load bio data for length weight 
-lw_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, SPECIMEN.UNIVERSAL_FISH_LABEL, CATCH.SPECIES_CODE, SPECIMEN.LENGTH, SPECIMEN.WEIGHT
-FROM TRIP LEFT JOIN ((BRIDGE_LOG LEFT JOIN CATCH ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) LEFT JOIN SPECIMEN ON CATCH.CATCH_ID = SPECIMEN.CATCH_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
-WHERE (((CATCH.SPECIES_CODE)='108' Or (CATCH.SPECIES_CODE)='112' Or (CATCH.SPECIES_CODE)='115' Or (CATCH.SPECIES_CODE)='118' Or (CATCH.SPECIES_CODE)='124') AND ((BRIDGE_LOG.EVENT_TYPE)='midwater tow') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((BRIDGE_LOG.USABILITY_CODE)<>5));
+lw_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, SPECIMEN.UNIVERSAL_FISH_LABEL, 
+CATCH.SPECIES_CODE, SPECIMEN.LENGTH, SPECIMEN.WEIGHT
+FROM TRIP LEFT JOIN ((BRIDGE_LOG LEFT JOIN CATCH ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) 
+LEFT JOIN SPECIMEN ON CATCH.CATCH_ID = SPECIMEN.CATCH_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
+WHERE (((CATCH.SPECIES_CODE)='108' Or (CATCH.SPECIES_CODE)='112' Or (CATCH.SPECIES_CODE)='115' Or 
+(CATCH.SPECIES_CODE)='118' Or (CATCH.SPECIES_CODE)='124') AND ((BRIDGE_LOG.EVENT_TYPE)='midwater tow') 
+AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 Or 
+DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND 
+((BRIDGE_LOG.USABILITY_CODE)<>5));
                          ")
+
 # GSI data from IPES for 2019
-gsi_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, SPECIMEN_COLLECTED.COLLECTED_ATTRIBUTE_CODE, SPECIMEN_COLLECTED.STORAGE_CONTAINER_SUB_ID, CATCH.SPECIES_CODE, BRIDGE_LOG.BRIDGE_LOG_ID, BRIDGE_LOG.BRIDGE_LOG_FIELD_ID, BRIDGE_LOG.TRIP_ID, BRIDGE_LOG.EVENT_DATE, BRIDGE_LOG.BLOCK_DESIGNATION, BRIDGE_LOG.USABILITY_CODE, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, SPECIMEN.LENGTH
-FROM TRIP LEFT JOIN (BRIDGE_LOG LEFT JOIN (CATCH LEFT JOIN (SPECIMEN LEFT JOIN SPECIMEN_COLLECTED ON SPECIMEN.SPECIMEN_ID = SPECIMEN_COLLECTED.SPECIMEN_ID) ON CATCH.CATCH_ID = SPECIMEN.CATCH_ID) ON BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
-WHERE (((TRIP.TRIP_YEAR)=2019) AND ((SPECIMEN_COLLECTED.COLLECTED_ATTRIBUTE_CODE)=4) AND ((CATCH.SPECIES_CODE)='115' Or (CATCH.SPECIES_CODE)='118' Or (CATCH.SPECIES_CODE)='124') AND ((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((BRIDGE_LOG.USABILITY_CODE)<>5) AND ((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>21 Or DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((SPECIMEN.LENGTH)<350));
+# IPES survey blocks only
+# juvenile defined by length of coho, sockeye, chinook only
+# daytime usable tows
+gsi_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, SPECIMEN_COLLECTED.COLLECTED_ATTRIBUTE_CODE, 
+SPECIMEN_COLLECTED.STORAGE_CONTAINER_SUB_ID, CATCH.SPECIES_CODE, BRIDGE_LOG.BRIDGE_LOG_ID, 
+BRIDGE_LOG.BRIDGE_LOG_FIELD_ID, BRIDGE_LOG.TRIP_ID, BRIDGE_LOG.EVENT_DATE, BRIDGE_LOG.BLOCK_DESIGNATION, 
+BRIDGE_LOG.USABILITY_CODE, IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 Or 
+DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day') AS DayNight, SPECIMEN.LENGTH
+FROM TRIP LEFT JOIN (BRIDGE_LOG LEFT JOIN (CATCH LEFT JOIN (SPECIMEN LEFT JOIN SPECIMEN_COLLECTED ON 
+SPECIMEN.SPECIMEN_ID = SPECIMEN_COLLECTED.SPECIMEN_ID) ON CATCH.CATCH_ID = SPECIMEN.CATCH_ID) ON 
+BRIDGE_LOG.BRIDGE_LOG_ID = CATCH.BRIDGE_LOG_ID) ON TRIP.TRIP_ID = BRIDGE_LOG.TRIP_ID
+WHERE (((TRIP.TRIP_YEAR)=2019) AND ((SPECIMEN_COLLECTED.COLLECTED_ATTRIBUTE_CODE)=4) AND 
+((CATCH.SPECIES_CODE)='115' Or (CATCH.SPECIES_CODE)='118' Or (CATCH.SPECIES_CODE)='124') AND 
+((BRIDGE_LOG.BLOCK_DESIGNATION)>0) AND ((BRIDGE_LOG.USABILITY_CODE)<>5) AND 
+((IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 Or 
+DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])<6,'Night','Day'))='Day') AND ((SPECIMEN.LENGTH)<350));
                           ")
+
 # close database
 close(myconn_ipes)
 
@@ -94,7 +133,7 @@ volume_ipes <- volume_ipes_orig %>%
 # calculate CPUE by swept volume
 cpue_ipes_salmon <- cpue_ipes_orig %>%
   filter(SPECIES_CODE %in% c(108, 112, 115, 118, 124)) %>%
-  left_join(., volume_ipes, by = c("BRIDGE_LOG_ID", "BRIDGE_LOG_FIELD_ID", "TRIP_NAME", "EVENT_NUMBER", 
+  left_join(., volume_ipes, by = c("BRIDGE_LOG_FIELD_ID", "TRIP_NAME", "EVENT_NUMBER", 
                                         "EVENT_TYPE", "BLOCK_DESIGNATION", "STRATUM")) %>%
   mutate(EVENT = str_c(TRIP_NAME, str_pad(EVENT_NUMBER, 3, side = "left", pad = 0), sep = "-"),
          CPUE = JUVENILE_CATCH_COUNT, 
@@ -112,34 +151,69 @@ db_hs <- "C:/Users/andersoned/Documents/BCSI/High Seas Salmon Database/HSSALMON.
 myconn_hs <- odbcConnectAccess2007(db_hs)
 
 # get bridge data from high seas
-cpue_hs_orig <- sqlQuery(myconn_hs, "SELECT STATION_INFO.CRUISE, STATION_INFO.STATION_ID, STATION_INFO.REGION, STATION_INFO.REGION_CODE, STATION_INFO.SYNOPTIC_STATION, BRIDGE.Year, BRIDGE.Month, BRIDGE.START_LAT, BRIDGE.START_LONG, BRIDGE.DISTANCE, BRIDGE.START_BOT_DEPTH, BRIDGE.END_BOT_DEPTH, BRIDGE.NET_OPENING_WIDTH, BRIDGE.NET_OPENING_HEIGHT, BRIDGE.HEAD_DEPTH, BRIDGE.PK_JUV, BRIDGE.CM_JUV, BRIDGE.SE_JUV, BRIDGE.CO_JUV, BRIDGE.CK_JUV
+# synoptic stations only
+# June and July
+# headrope depth <20 m
+cpue_hs_orig <- sqlQuery(myconn_hs, "SELECT STATION_INFO.CRUISE, STATION_INFO.STATION_ID, 
+STATION_INFO.REGION, STATION_INFO.REGION_CODE, STATION_INFO.SYNOPTIC_STATION, BRIDGE.Year, 
+BRIDGE.Month, BRIDGE.START_LAT, BRIDGE.START_LONG, BRIDGE.DISTANCE, BRIDGE.START_BOT_DEPTH, 
+BRIDGE.END_BOT_DEPTH, BRIDGE.NET_OPENING_WIDTH, BRIDGE.NET_OPENING_HEIGHT, BRIDGE.HEAD_DEPTH, 
+BRIDGE.PK_JUV, BRIDGE.CM_JUV, BRIDGE.SE_JUV, BRIDGE.CO_JUV, BRIDGE.CK_JUV
 FROM STATION_INFO INNER JOIN BRIDGE ON STATION_INFO.STATION_ID = BRIDGE.STATION_ID
-WHERE (((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.Month)='JUN' Or (BRIDGE.Month)='JUL') AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290) AND ((BRIDGE.HEAD_DEPTH)<22));
+WHERE (((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.Month)='JUN' Or (BRIDGE.Month)='JUL') 
+AND ((BRIDGE.HEAD_DEPTH)<20));
                          ")
 
 # get length weight data from high seas
-lw_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.Year, BIOLOGICAL_JUNCTION.FISH_NUMBER, BIOLOGICAL.SPECIES, BIOLOGICAL.SHIP_FL, BIOLOGICAL.SHIP_WT
-FROM STATION_INFO INNER JOIN ((BRIDGE INNER JOIN BIOLOGICAL_JUNCTION ON BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) INNER JOIN BIOLOGICAL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL.FISH_NUMBER) ON (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) AND (STATION_INFO.STATION_ID = BRIDGE.STATION_ID)
-WHERE (((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.Month)='JUN' Or (BRIDGE.Month)='JUL') AND ((BRIDGE.HEAD_DEPTH)<22) AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290));
+# synoptic stations
+# June and July
+# headrope depth < 20 m
+lw_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.Year, BIOLOGICAL_JUNCTION.FISH_NUMBER, BIOLOGICAL.SPECIES, 
+BIOLOGICAL.SHIP_FL, BIOLOGICAL.SHIP_WT
+FROM STATION_INFO INNER JOIN ((BRIDGE INNER JOIN BIOLOGICAL_JUNCTION ON 
+BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) INNER JOIN BIOLOGICAL ON 
+BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL.FISH_NUMBER) ON 
+(STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) AND (STATION_INFO.STATION_ID = BRIDGE.STATION_ID)
+WHERE (((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.Month)='JUN' Or (BRIDGE.Month)='JUL') AND 
+(BRIDGE.HEAD_DEPTH)<20);
                        ")
 
 # get calorimetry data from high seas
-cal_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.YEAR, BIOLOGICAL_JUNCTION.FISH_NUMBER, CALORIMETRY.HEAT_RELEASED_CAL, CALORIMETRY.HEAT_RELEASED_KJ, CALORIMETRY.DUPLICATE, CALORIMETRY.DATA_ISSUE
-FROM STATION_INFO INNER JOIN ((BRIDGE INNER JOIN BIOLOGICAL_JUNCTION ON BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) INNER JOIN CALORIMETRY ON BIOLOGICAL_JUNCTION.FISH_NUMBER = CALORIMETRY.FISH_NUMBER) ON (STATION_INFO.STATION_ID = BRIDGE.STATION_ID) AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
-WHERE (((CALORIMETRY.DATA_ISSUE)='N') AND ((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.MONTH)='JUN' Or (BRIDGE.MONTH)='JUL') AND ((BRIDGE.HEAD_DEPTH)<22) AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290));
+cal_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.YEAR, BIOLOGICAL_JUNCTION.FISH_NUMBER, 
+CALORIMETRY.HEAT_RELEASED_CAL, CALORIMETRY.HEAT_RELEASED_KJ, CALORIMETRY.DUPLICATE, 
+CALORIMETRY.DATA_ISSUE
+FROM STATION_INFO INNER JOIN ((BRIDGE INNER JOIN BIOLOGICAL_JUNCTION ON 
+BRIDGE.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID) INNER JOIN CALORIMETRY ON 
+BIOLOGICAL_JUNCTION.FISH_NUMBER = CALORIMETRY.FISH_NUMBER) ON 
+(STATION_INFO.STATION_ID = BRIDGE.STATION_ID) AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
+WHERE (((CALORIMETRY.DATA_ISSUE)='N') AND ((STATION_INFO.SYNOPTIC_STATION)=True) AND 
+((BRIDGE.MONTH)='JUN' Or (BRIDGE.MONTH)='JUL') AND (BRIDGE.HEAD_DEPTH)<20);
                         ")
 
 # get calorimetry data for IPES from high seas table
-cal_ipes_orig <- sqlQuery(myconn_hs, "SELECT CALORIMETRY_IPES.FISH_NUMBER, CALORIMETRY_IPES.DUPLICATE, CALORIMETRY_IPES.HEAT_RELEASED_CAL, CALORIMETRY_IPES.HEAT_RELEASED_KJ, CALORIMETRY_IPES.DATA_ISSUE, CALORIMETRY_IPES.COMMENTS
+# need to limit using bridge info to IPES blocks and usable tows
+cal_ipes_orig <- sqlQuery(myconn_hs, "SELECT CALORIMETRY_IPES.FISH_NUMBER, CALORIMETRY_IPES.DUPLICATE, 
+CALORIMETRY_IPES.HEAT_RELEASED_CAL, CALORIMETRY_IPES.HEAT_RELEASED_KJ, CALORIMETRY_IPES.DATA_ISSUE, 
+CALORIMETRY_IPES.COMMENTS
 FROM CALORIMETRY_IPES
 WHERE (((CALORIMETRY_IPES.DATA_ISSUE)='N'));
                           ")
 
 # get calorimetry data for hisoric data
-cal_historic_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.YEAR, BRIDGE.MONTH, BIOLOGICAL.SPECIES, BIOLOGICAL_JUNCTION.FISH_NUMBER, PROXIMATE_FISH.ENERGY_BOMB, PROXIMATE_FISH.ENERGY_BOMB_BLIND_DUPL
-FROM STATION_INFO INNER JOIN (((BIOLOGICAL_JUNCTION INNER JOIN PROXIMATE_FISH ON BIOLOGICAL_JUNCTION.FISH_NUMBER = PROXIMATE_FISH.FISH_NUMBER) INNER JOIN BRIDGE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE.STATION_ID) INNER JOIN BIOLOGICAL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL.FISH_NUMBER) ON (STATION_INFO.STATION_ID = BRIDGE.STATION_ID) AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
-WHERE (((BRIDGE.MONTH)='JUN' Or (BRIDGE.MONTH)='JUL') AND ((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.HEAD_DEPTH)<22) AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290));
+# limited to synoptic stations
+# June and July
+# headrope depth <20 m
+cal_historic_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.YEAR, BRIDGE.MONTH, BIOLOGICAL.SPECIES, 
+BIOLOGICAL_JUNCTION.FISH_NUMBER, PROXIMATE_FISH.ENERGY_BOMB, PROXIMATE_FISH.ENERGY_BOMB_BLIND_DUPL
+FROM STATION_INFO INNER JOIN (((BIOLOGICAL_JUNCTION INNER JOIN PROXIMATE_FISH ON 
+BIOLOGICAL_JUNCTION.FISH_NUMBER = PROXIMATE_FISH.FISH_NUMBER) INNER JOIN BRIDGE ON 
+BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE.STATION_ID) INNER JOIN BIOLOGICAL ON 
+BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL.FISH_NUMBER) ON (STATION_INFO.STATION_ID = BRIDGE.STATION_ID) 
+AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
+WHERE (((BRIDGE.MONTH)='JUN' Or (BRIDGE.MONTH)='JUL') AND ((STATION_INFO.SYNOPTIC_STATION)=True) AND 
+(BRIDGE.HEAD_DEPTH)<20);
                           ")
+
 # close database
 close(myconn_hs)
 
@@ -165,8 +239,10 @@ hs_net_avg <- cpue_hs_orig %>%
             AvgNET_OPENING_HEIGHT = mean(NET_OPENING_HEIGHT, na.rm = TRUE)) %>%
   filter(CRUISE %in% missing_hs_vec)
 
-# use Sea Crest net width and height from gear comparison for HEAD_DEPTH = 0
-# same vessel, Captain and net although the chain links etc were different
+# use Sea Crest average net width and height from whole survey
+# Jackie did this in past with net height = 14 and net width = 33 m
+# gear comparison study was used initially 
+# same vessel, Captain and net but the chain links and floats were different
 # use average of 10.6 for headrope ~ 15 m
 
 
@@ -174,11 +250,10 @@ hs_net_avg <- cpue_hs_orig %>%
 cpue_hs_net <- cpue_hs_orig %>%
   mutate(NET_OPENING_WIDTH = case_when(
     !(is.na(NET_OPENING_WIDTH)) ~ NET_OPENING_WIDTH,
-      is.na(NET_OPENING_WIDTH) & HEAD_DEPTH <= 7 ~ 41, # from gear comparison study
-      is.na(NET_OPENING_WIDTH) & HEAD_DEPTH > 7 ~ 47),
+      is.na(NET_OPENING_WIDTH) ~ 33), # from average for 201893 survey
     NET_OPENING_HEIGHT = case_when(
       !(is.na(NET_OPENING_HEIGHT)) ~ NET_OPENING_HEIGHT,
-        is.na(NET_OPENING_HEIGHT) & HEAD_DEPTH <= 7 ~ 19, # from gear comparison study
+        is.na(NET_OPENING_HEIGHT) & HEAD_DEPTH <= 7~ 14, # from average for 201893 survey
         is.na(NET_OPENING_HEIGHT) & HEAD_DEPTH > 7 ~ 11), # average from same cruise rounded
     NET_AREA_KM = (NET_OPENING_WIDTH/1000) * (NET_OPENING_HEIGHT/1000),
     DISTANCE_KM = DISTANCE * 1.852,
@@ -212,7 +287,7 @@ cpue_hs <- rbind(cpue_hs_ck, cpue_hs_cm, cpue_hs_co, cpue_hs_pk, cpue_hs_se)
 # make CPUE by swept volume and log(cpue + 1)
 cpue_hs <- cpue_hs %>%
   mutate(CPUE = JUVENILE_CATCH_COUNT / SWEPT_VOLUME,
-         logCPUE1 = log(CPUE + 1))
+         logCPUE1 = log(CPUE + 1)) # natural log by default
 
 #####################################
 # cpue annual anomalies
@@ -228,12 +303,8 @@ zero_fn <- function(cpue_ipes_salmon, tows_ipes, speciesName) {
     full_join(., tows_ipes, by = c("TRIP_YEAR", "BLOCK_DESIGNATION", "START_LATITUDE", "START_LONGITUDE")) %>%
     mutate(SPECIES_CODE = speciesName) %>%
     mutate_if(is.numeric, replace_na, replace = 0) %>%
-  
-  # remove duplicate lines
-  # they are zero tows anyway
-    # likely due to blank juvenile counts with trace amounts in 2018
-  distinct(TRIP_YEAR, BLOCK_DESIGNATION, EVENT, START_LATITUDE, START_LONGITUDE, JUVENILE_CATCH_COUNT,
-           SWEPT_VOLUME, SPECIES_CODE, CPUE, logCPUE1)
+    dplyr::select(TRIP_YEAR, BLOCK_DESIGNATION, EVENT, START_LATITUDE, START_LONGITUDE, JUVENILE_CATCH_COUNT,
+            SWEPT_VOLUME, SPECIES_CODE, CPUE, logCPUE1)
     
 }
 
@@ -248,11 +319,21 @@ cpue_ipes_ck <- zero_fn(cpue_ipes_salmon, tows_ipes, 124)
 # if not find duplicates
 # originally ck and co had 177
 # the others had 175 like the total tows
+# then found 2018 had two night tows that started at 9:55 PM being labelled as day
+# changed day night definition to omit them
 tows_miss_ck <- cpue_ipes_ck %>%
   group_by(TRIP_YEAR, BLOCK_DESIGNATION, EVENT) %>%
   filter(n() > 1)
 
-tows_miss_co <- cpue_ipes_cm %>%
+tows_miss_co <- cpue_ipes_co %>%
+  group_by(TRIP_YEAR, BLOCK_DESIGNATION, EVENT) %>%
+  filter(n() > 1)
+
+tows_miss_se <- cpue_ipes_se %>%
+  group_by(TRIP_YEAR, BLOCK_DESIGNATION, EVENT) %>%
+  filter(n() > 1)
+
+tows_miss_cm <- cpue_ipes_cm %>%
   group_by(TRIP_YEAR, BLOCK_DESIGNATION, EVENT) %>%
   filter(n() > 1)
 
@@ -284,17 +365,16 @@ cpueNum_ipes_catch <- cpue_ipes %>%
   ungroup() %>%
   mutate(source = "ipes_catch")
 
-# there are two tows misssing from 2018 and one from 2019 likely from deleted tows
-# ignore those missing tows and use catch data
+# check that catch and tow data are the same for IPES
 
 # make year with number of tows vector for label
 # add 2018 IPES and 2018 high seas together
 # use hs for 1998 to 2017
 # use IPES for 2017 and 2019
-yearTowVec <- c("1998\n(12)", "1999\n(12)", "2000\n(16)", "2001\n(23)", "2002\n(11)", "2003\n(7)",
-                "2004\n(15)", "2005\n(14)","2006\n(17)", "2007\n(32)", "2008\n(0)", "2009\n(14)",
-                "2010\n(19)", "2011\n(26)", "2012\n(23)","2013\n(16)", "2014\n(7)", "2015\n(33)",
-                "2016\n(0)", "2017\n(54)", "2018\n(91)", "2019\n(68)")
+yearTowVec <- c("1998\n(65)", "1999\n(65)", "2000\n(80)", "2001\n(115)", "2002\n(65)", "2003\n(40)",
+                "2004\n(75)", "2005\n(70)","2006\n(85)", "2007\n(160)", "2008\n(155)", "2009\n(140)",
+                "2010\n(155)", "2011\n(155)", "2012\n(120)","2013\n(100)", "2014\n(35)", "2015\n(165)",
+                "2016\n(0)", "2017\n(53)", "2018\n(91)", "2019\n(68)")
 
 # create function to calculate anomalies for each salmon species
 anom_fn <- function(df, speciesCode) {
@@ -350,7 +430,7 @@ ggplot(cpue_df, aes(x = Year_fac, y = anom)) +
   labs(x = "Ocean Sample Year",
        y = "ln(CPUE + 1) Anomalies") +
   theme(title = element_text(face = "bold", size = 14)) +
-  geom_vline(xintercept = c(11, 19), linetype = "dotted") +
+  geom_vline(xintercept = 19, linetype = "dotted") +
   ylim(-2, 2) +
   scale_x_discrete(drop = FALSE) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1),
@@ -398,7 +478,7 @@ anom_ind_fn <- function(df, speciesCode, speciesName, yearTowVec, tows_ipes) {
          y = "ln(CPUE + 1)",
          title = str_c("Juvenile ", speciesName, " Salmon Annual CPUE Anomalies")) +
     theme(title = element_text(face = "bold", size = 14)) +
-    geom_vline(xintercept = c(11, 19), linetype = "dotted") +
+    geom_vline(xintercept = 19, linetype = "dotted") +
     ylim(-2, 2) +
     scale_x_discrete(drop = FALSE,
                      labels = yearTowVec) + 
@@ -638,6 +718,7 @@ ggsave("Output/2019/IPES_Tows.png", map_ipes)
 
 map_both <- egg::ggarrange(map_hs, map_ipes, 
                            nrow = 1)
+map_both
 
 #####################################
 # Length to weight residuals 
@@ -836,7 +917,8 @@ residsLW_all <- residsLW %>%
           panel.grid.major.x = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black"),
           strip.text = element_text(size = 14),
-          axis.title = element_text(face = "bold", size = 14)) +
+          axis.title = element_text(face = "bold", size = 14),
+          axis.text = element_text(size = 14)) +
     scale_x_discrete(drop = FALSE)
 
 # # combine all LW plots
@@ -885,6 +967,11 @@ ggplot(data = filter(cal, SPECIES_CODE != 108),
   facet_wrap(~SPECIES_CODE) +
    theme_bw()
 
+# this does not look great for correlation
+# don't have time now but look into this later
+# perhaps need to untransform the Residuals to have clearer relationship
+# perhaps relationship only in sockeye?
+
 # calculate mean calorimetry results by year and species
 # include confident intervals
 cal_ci <- groupwiseMean(HEAT_RELEASED_CAL ~ SPECIES_CODE + factor(Year),
@@ -927,9 +1014,9 @@ cal_simp <- cal_simp %>%
 ggplot(data = filter(cal_simp, SPECIES_CODE != 108),
        aes(x = YearFac, y = HEAT_RELEASED_KJ)) +
   #geom_boxplot(fill = "darkred") +
-  geom_violin(color = "darkred") +
-  geom_point(color = "darkred") +
-  #geom_jitter(aes(color = YearFac)) +
+  geom_violin(color = "black", fill = "darkred") +
+  geom_point(color = "black") +
+  #geom_jitter(aes(color = YearFac), color = "darkred") +
    theme_bw() +
   facet_wrap(~SPECIES_NAME) +
   theme(panel.grid.minor.y = element_blank(), 
@@ -950,7 +1037,7 @@ ggsave("Output/2019/calorimetry.png")
 # GSI results for 2019
 #####################################
 # Note that there were no GSI data from high seas database
-# The June survey was loaded into IPES
+# the June survey was loaded into IPES with negative blocks (omited here)
 # the October survey within high seas is not included
 
 # load chinook data for 2019
@@ -1009,7 +1096,8 @@ gsiPlot_ck <- ggplot(gsi_ck_2019,
   theme_bw() +
   theme(title = element_text(face = "bold", size = 14),
         axis.title = element_text(face = "bold", size = 14),
-        strip.text = element_text(size = 14)) +
+        strip.text = element_text(size = 14),
+        axis.text = element_text(size = 14)) +
   scale_fill_viridis_d()
 gsiPlot_ck
 
@@ -1073,7 +1161,8 @@ gsiPlot_co <- ggplot(gsi_co,
   theme_bw() +
   theme(title = element_text(face = "bold", size = 14),
         axis.title = element_text(face = "bold", size = 14),
-        strip.text = element_text(size = 14)) +
+        strip.text = element_text(size = 14),
+        axis.text = element_text(size = 14)) +
   scale_fill_viridis_d()
 gsiPlot_co  
 
@@ -1132,7 +1221,8 @@ gsiPlot_se <- ggplot(gsi_se_2019,
   theme_bw() +
   theme(title = element_text(face = "bold", size = 14),
         axis.title = element_text(face = "bold", size = 14),
-        strip.text = element_text(size = 14)) +
+        strip.text = element_text(size = 14),
+        axis.text = element_text(size = 14)) +
   scale_fill_viridis_d()
 gsiPlot_se
 
@@ -1142,5 +1232,7 @@ gsi_all
 #####################################
 # Other species? 
 # counts or biomass?
+# ran out of time
+# get over view from IPES report
 
 #####################################
