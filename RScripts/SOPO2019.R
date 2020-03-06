@@ -134,6 +134,12 @@ cal_ipes_orig <- sqlQuery(myconn_hs, "SELECT CALORIMETRY_IPES.FISH_NUMBER, CALOR
 FROM CALORIMETRY_IPES
 WHERE (((CALORIMETRY_IPES.DATA_ISSUE)='N'));
                           ")
+
+# get calorimetry data for hisoric data
+cal_historic_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE.YEAR, BRIDGE.MONTH, BIOLOGICAL.SPECIES, BIOLOGICAL_JUNCTION.FISH_NUMBER, PROXIMATE_FISH.ENERGY_BOMB, PROXIMATE_FISH.ENERGY_BOMB_BLIND_DUPL
+FROM STATION_INFO INNER JOIN (((BIOLOGICAL_JUNCTION INNER JOIN PROXIMATE_FISH ON BIOLOGICAL_JUNCTION.FISH_NUMBER = PROXIMATE_FISH.FISH_NUMBER) INNER JOIN BRIDGE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE.STATION_ID) INNER JOIN BIOLOGICAL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL.FISH_NUMBER) ON (STATION_INFO.STATION_ID = BRIDGE.STATION_ID) AND (STATION_INFO.STATION_ID = BIOLOGICAL_JUNCTION.STATION_ID)
+WHERE (((BRIDGE.MONTH)='JUN' Or (BRIDGE.MONTH)='JUL') AND ((STATION_INFO.SYNOPTIC_STATION)=True) AND ((BRIDGE.HEAD_DEPTH)<22) AND ((BRIDGE.START_BOT_DEPTH)<290) AND ((BRIDGE.END_BOT_DEPTH)<290));
+                          ")
 # close database
 close(myconn_hs)
 
@@ -830,7 +836,8 @@ residsLW_all <- residsLW %>%
           panel.grid.major.x = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black"),
           strip.text = element_text(size = 14),
-          axis.title = element_text(face = "bold", size = 14)) 
+          axis.title = element_text(face = "bold", size = 14)) +
+    scale_x_discrete(drop = FALSE)
 
 # # combine all LW plots
 # lw_all <- egg::ggarrange(boxplot_ck, boxplot_cm, boxplot_co, boxplot_se)
@@ -885,8 +892,29 @@ cal_ci <- groupwiseMean(HEAT_RELEASED_CAL ~ SPECIES_CODE + factor(Year),
               conf = 0.95,
               digits = 3)
 
+# wrangle historic high seas calorimetry data
+# reported in megajoules per kilogram
+# equal to kilojoules per gram reported in newer calorimetry table
+# table mean for duplicate samples
+cal_historic <- cal_historic_orig %>%
+  mutate(SPECIES_CODE = case_when(
+    SPECIES == "CHINOOK" ~ 124,
+    SPECIES == "COHO" ~ 115),
+    HEAT_RELEASED_KJ = if_else(is.na(ENERGY_BOMB_BLIND_DUPL), 
+                               ENERGY_BOMB, (ENERGY_BOMB + ENERGY_BOMB_BLIND_DUPL)/2),
+    Year = YEAR) %>%
+  dplyr::select(FISH_NUMBER, HEAT_RELEASED_KJ, Year, SPECIES_CODE)
+
+
+# simplify current calorimetry data
+cal_simp <- cal %>%
+  dplyr::select(FISH_NUMBER, HEAT_RELEASED_KJ, Year, SPECIES_CODE)
+  
+# bind historic to current calorimetry data
+cal_simp <- rbind(cal_simp, cal_historic)
+
 # make year amd species as factors
-cal <- cal %>%
+cal_simp <- cal_simp %>%
   mutate(YearFac = as.factor(Year),
          SPECIES_NAME = case_when(
            SPECIES_CODE == 124 ~ "Chinook",
@@ -896,8 +924,8 @@ cal <- cal %>%
            SPECIES_CODE == 108 ~ "Pink"))
 
 # graph calorimetry results
-ggplot(data = filter(cal, SPECIES_CODE != 108),
-       aes(x = YearFac, y = HEAT_RELEASED_CAL)) +
+ggplot(data = filter(cal_simp, SPECIES_CODE != 108),
+       aes(x = YearFac, y = HEAT_RELEASED_KJ)) +
   #geom_boxplot(fill = "darkred") +
   geom_violin(color = "darkred") +
   geom_point(color = "darkred") +
@@ -909,10 +937,11 @@ ggplot(data = filter(cal, SPECIES_CODE != 108),
         panel.background = element_rect(fill = "white",colour = "black"),
         strip.text = element_text(face = "bold", size = 14),
         axis.title = element_text(face = "bold", size = 14),
+        axis.text = element_text(size = 14),
         legend.position = "none") +
   #scale_color_viridis_d() +
   labs(x = "Year",
-       y = "Heat Released (calories)")
+       y = "Heat Released (Kilojoules/gram)")
 
 # save graph
 ggsave("Output/2019/calorimetry.png")
