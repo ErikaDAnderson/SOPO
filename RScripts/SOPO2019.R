@@ -432,25 +432,29 @@ ggplot(cpue_df, aes(x = Year_fac, y = anom)) +
   theme(title = element_text(face = "bold", size = 14)) +
   geom_vline(xintercept = 19, linetype = "dotted") +
   ylim(-2, 2) +
-  scale_x_discrete(drop = FALSE) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+  scale_x_discrete(drop = FALSE,
+                   breaks = c(2000, 2005, 2010, 2015)) +
+  theme(#axis.text.x = element_text(angle = 90, hjust = 1),
         axis.title = element_text(face = "bold", size = 14),
+        axis.text = element_text(size = 12),
         strip.text = element_text(size = 14),
         panel.grid.minor.y = element_blank(), 
-        panel.grid.major.x = element_blank(), 
+        #panel.grid.major.x = element_blank(), 
         panel.background = element_rect(fill = "white",colour = "black")) 
 
 ggsave(str_c("Output/2019/CPUE_AllSpecies.png"))
 
-############################################
-
-# create function to make anomalies graph for each salmon species
-anom_ind_fn <- function(df, speciesCode, speciesName, yearTowVec, tows_ipes) {
-
+## rerun with no zero tows to see patterns between surveys without zero inflation
+# create function to calculate anomalies for each salmon species
+anom_no_zero_fn <- function(df, speciesCode) {
+  
   cpue_select <- cpue %>%
+    filter(CPUE != 0) %>%
     filter(SPECIES_CODE == speciesCode) %>%
+    mutate(lncpue = log(CPUE)) %>% # natural log by default
+                                   # no need for plus one without zero tows
     group_by(TRIP_YEAR) %>%
-    summarize(meanCPUE = mean(logCPUE1, na.rm = TRUE)) %>%
+    summarize(meanCPUE = mean(lncpue, na.rm = TRUE)) %>%
     ungroup() 
   
   # calculate mean and standard deviation for this time series
@@ -459,48 +463,130 @@ anom_ind_fn <- function(df, speciesCode, speciesName, yearTowVec, tows_ipes) {
   
   # calculate anomalies
   cpue_select <- cpue_select %>%
-    mutate(anom = (meanCPUE - meanCPUE_ts)/sdCPUE_ts)
+    mutate(anom = (meanCPUE - meanCPUE_ts)/sdCPUE_ts,
+           speciesCol = case_when(
+             speciesCode == 108 ~ "Pink",
+             speciesCode == 112 ~ "Chum",
+             speciesCode == 115 ~ "Coho",
+             speciesCode == 118 ~ "Sockeye",
+             speciesCode == 124 ~ "Chinook"))
   
-  # make year factor for nice graph
-  cpue_select$Year_fac <- as.factor(cpue_select$TRIP_YEAR)
-  cpue_select$Year_fac <- factor(cpue_select$Year_fac, 
-                                levels = c("1998", "1999", "2000", "2001", "2002", "2003", "2004", "2005",
-                                           "2006", "2007", "2008", "2009", "2010", "2011", "2012",
-                                           "2013", "2014", "2015", "2016", "2017", "2018", "2019"))
-
-  # graph
-  plot <- ggplot(cpue_select, aes(x = Year_fac, y = anom)) +
-    geom_bar(stat = "identity", fill = "darkred") +
-    theme_bw() +
-    geom_hline(yintercept = 0) +
-    geom_hline(yintercept = c(-1, 1), linetype = "dashed") +
-    labs(x = "Ocean Sample Year\n(Number of Tows)",
-         y = "ln(CPUE + 1)",
-         title = str_c("Juvenile ", speciesName, " Salmon Annual CPUE Anomalies")) +
-    theme(title = element_text(face = "bold", size = 14)) +
-    geom_vline(xintercept = 19, linetype = "dotted") +
-    ylim(-2, 2) +
-    scale_x_discrete(drop = FALSE,
-                     labels = yearTowVec) + 
-  theme(axis.title = element_text(face = "bold", size = 14))
+  return(cpue_select)
   
-  ggsave(str_c("Output/2019/CPUE_", speciesName, ".png"), plot)
-  
-  return(plot)
-
 }
 
 # apply function to species
-cpuePK_plot <- anom_ind_fn(cpue, 108, "Pink", yearTowVec, tows_ipes)
-cpuePK_plot
-cpueCM_plot <- anom_ind_fn(cpue, 112, "Chum", yearTowVec, tows_ipes)
-cpueCM_plot
-cpueCO_plot <- anom_ind_fn(cpue, 115, "Coho", yearTowVec, tows_ipes)
-cpueCO_plot
-cpueCK_plot <- anom_ind_fn(cpue, 124, "Chinook", yearTowVec, tows_ipes)
-cpueCK_plot
-cpueSE_plot <- anom_ind_fn(cpue, 118, "Sockeye", yearTowVec, tows_ipes)
-cpueSE_plot
+cpuePK_noZero <- anom_no_zero_fn(cpue, 108)
+cpueCM_noZero <- anom_no_zero_fn(cpue, 112)
+cpueCO_noZero <- anom_no_zero_fn(cpue, 115)
+cpueCK_noZero <- anom_no_zero_fn(cpue, 124)
+cpueSE_noZero <- anom_no_zero_fn(cpue, 118)
+
+# bind together
+cpue_noZero <- rbind(cpuePK_noZero, cpueCM_noZero, cpueCO_noZero, cpueCK_noZero, cpueSE_noZero)
+
+
+# make year factor for nice graph
+cpue_noZero$Year_fac <- as.factor(cpue_noZero$TRIP_YEAR)
+cpue_noZero$Year_fac <- factor(cpue_noZero$Year_fac, 
+                               levels = c("1998", "1999", "2000", "2001", "2002", "2003", "2004", "2005",
+                                          "2006", "2007", "2008", "2009", "2010", "2011", "2012",
+                                          "2013", "2014", "2015", "2016", "2017", "2018", "2019"))
+
+# graph
+ggplot(cpue_noZero, aes(x = Year_fac, y = anom)) +
+  geom_bar(stat = "identity", fill = "darkred") +
+  theme_bw() +
+  geom_hline(yintercept = 0) +
+  facet_wrap(~speciesCol) +
+  labs(x = "Ocean Sample Year",
+       y = "ln(CPUE) Anomalies") +
+  theme(title = element_text(face = "bold", size = 14)) +
+  geom_vline(xintercept = 19, linetype = "dotted") +
+  #ylim(-2, 2) +
+  scale_x_discrete(drop = FALSE,
+                  breaks = c(2000, 2005, 2010, 2015)) +
+  theme(#axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title = element_text(face = "bold", size = 14),
+        strip.text = element_text(size = 14),
+        #panel.grid.minor.y = element_blank(), 
+        #panel.grid.major.x = element_blank(), 
+        #panel.background = element_rect(fill = "white",colour = "black")
+        ) 
+
+ggsave(str_c("Output/2019/CPUE_AllSpecies_NoZeros.png"))
+
+
+### try CPUE with no volume correction
+# compared min, max and mean of swept volumes
+# they were comparable between hs and ipes
+anom_noVolume_fn <- function(df, speciesCode) {
+  
+  cpue_select <- cpue %>%
+    filter(SPECIES_CODE == speciesCode) %>%
+    mutate(lncpue1 = log(JUVENILE_CATCH_COUNT + 1)) %>% # natural log by default
+    group_by(TRIP_YEAR) %>%
+    summarize(meanCPUE = mean(lncpue1, na.rm = TRUE)) %>%
+    ungroup() 
+  
+  # calculate mean and standard deviation for this time series
+  meanCPUE_ts <- mean(cpue_select$meanCPUE, na.rm = TRUE)
+  sdCPUE_ts <- sd(cpue_select$meanCPUE, na.rm = TRUE)
+  
+  # calculate anomalies
+  cpue_select <- cpue_select %>%
+    mutate(anom = (meanCPUE - meanCPUE_ts)/sdCPUE_ts,
+           speciesCol = case_when(
+             speciesCode == 108 ~ "Pink",
+             speciesCode == 112 ~ "Chum",
+             speciesCode == 115 ~ "Coho",
+             speciesCode == 118 ~ "Sockeye",
+             speciesCode == 124 ~ "Chinook"))
+  
+  return(cpue_select)
+  
+}
+
+# apply function to species
+cpuePK_noVol <- anom_noVolume_fn(cpue, 108)
+cpueCM_noVol <- anom_noVolume_fn(cpue, 112)
+cpueCO_noVol <- anom_noVolume_fn(cpue, 115)
+cpueCK_noVol <- anom_noVolume_fn(cpue, 124)
+cpueSE_noVol <- anom_noVolume_fn(cpue, 118)
+
+# bind together
+cpue_noVol <- rbind(cpuePK_noVol, cpueCM_noVol, cpueCO_noVol, cpueCK_noVol, cpueSE_noVol)
+
+
+# make year factor for nice graph
+cpue_noVol$Year_fac <- as.factor(cpue_noVol$TRIP_YEAR)
+cpue_noVol$Year_fac <- factor(cpue_noVol$Year_fac, 
+                               levels = c("1998", "1999", "2000", "2001", "2002", "2003", "2004", "2005",
+                                          "2006", "2007", "2008", "2009", "2010", "2011", "2012",
+                                          "2013", "2014", "2015", "2016", "2017", "2018", "2019"))
+
+# graph
+ggplot(cpue_noVol, aes(x = Year_fac, y = anom)) +
+  geom_bar(stat = "identity", fill = "darkred") +
+  theme_bw() +
+  geom_hline(yintercept = 0) +
+  facet_wrap(~speciesCol) +
+  labs(x = "Ocean Sample Year",
+       y = "ln(CPUE + 1) Anomalies") +
+  theme(title = element_text(face = "bold", size = 14)) +
+  geom_vline(xintercept = 19, linetype = "dotted") +
+  #ylim(-2, 2) +
+  scale_x_discrete(drop = FALSE,
+                   breaks = c(2000, 2005, 2010, 2015)) +
+  theme(#axis.text.x = element_text(angle = 90, hjust = 1),
+    axis.title = element_text(face = "bold", size = 14),
+    strip.text = element_text(size = 14),
+    #panel.grid.minor.y = element_blank(), 
+    #panel.grid.major.x = element_blank(), 
+    #panel.background = element_rect(fill = "white",colour = "black")
+  ) 
+
+ggsave(str_c("Output/2019/CPUE_AllSpecies_NoVolume.png"))
 
 #####################################
 # use Kriging to see spatial distribution in 2019
@@ -670,6 +756,139 @@ krig_all
 ggsave(str_c(OutputFolder, "/Kriging_All.png"), krig_all)
 # copy from R window to avoid introducing white margins to plot for power point
 
+### try Kriging on high seas data to see distribution
+#### ten years ago in 2009
+
+# choose year to compare
+yearID <- 2005
+
+# limit cpue data to one year only
+df_hs <- cpue %>%
+  filter(TRIP_YEAR == yearID) 
+
+# plot to see data
+ggplot(df_hs) +
+  geom_point(aes(x = START_LONGITUDE, y = START_LATITUDE, color = logCPUE1)) +
+  theme_bw()
+
+# check for duplicates locations since they cause errors in interpolation
+newdf_dups <- df_hs %>%
+  group_by(SPECIES_CODE, START_LATITUDE, START_LONGITUDE) %>%
+  filter(n() > 1)
+
+# create empty list
+mylistHS <- list()
+
+# create vector of salmon species excluding pink since there was no daylight catch in 2019
+speciesVec <- c(112, 115, 118, 124)
+
+for (i in speciesVec) {
+  
+  newdf <- df_hs %>%
+    filter(SPECIES_CODE == i) %>%
+    rename(lat = START_LATITUDE,
+           long = START_LONGITUDE,
+           logCPUE = logCPUE1) %>%
+    mutate(SPECIES_NAME = case_when(
+      SPECIES_CODE == 124 ~ "Chinook",
+      SPECIES_CODE == 112 ~ "Chum",
+      SPECIES_CODE == 115 ~ "Coho",
+      SPECIES_CODE == 118 ~ "Sockeye",
+      SPECIES_CODE == 108 ~ "Pink"))
+  
+  # create name of data frame
+  nameDf <- unique(newdf$SPECIES_NAME)
+  
+  # print to console for troubleshooting
+  print(nameDf)
+  
+  # duplicate locations cause issue with interpolations
+  # calculate max CPUE and logCPUE for use in duplicate interpolations
+  newdf %<>%
+    group_by(lat, long) %>%
+    summarise(
+      maxCPUE = max(CPUE),
+      maxlogCPUE =  max(logCPUE)) %>%
+    ungroup() %>%
+    rename(CPUE = maxCPUE,
+           logCPUE = maxlogCPUE) 
+  
+  # convert simple data frame into a spatial data frame object
+  coordinates(newdf)= ~ long + lat
+  
+  # set CRS for data frame as geographic spatial coordiantes
+  WGS84 <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  proj4string(newdf) <- WGS84
+  
+  # causes issues with plotting coast with interpolation grid
+  # works in geographic coordinates though
+  # # project to BC Albers to match study area grid and make pretty
+  # newdf <- spTransform(newdf, "+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 +x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0")
+  
+  #######################
+  # create variogram
+  # could use logCPUE or CPUE
+  # logCPUE minimizes impact of extra large tows
+  dfVariogram = variogram(logCPUE~1, data = newdf)
+  
+  # gstat function that calculates nugget, sill, range from data
+  dfVariogramModel <- fit.variogram(dfVariogram, vgm(c("Gau")))
+  
+  # plot variogram
+  print(plot(dfVariogram, model = dfVariogramModel))
+  
+  # description of variogram
+  print(summary(dfVariogramModel))
+  
+  #############################################
+  
+  # an interpolation function from gstat
+  TheSurface <- gstat::krige((logCPUE) ~ 1, newdf, sa, model = dfVariogramModel)
+  
+  # transform surface to data frame for plotting
+  TheSurface <- as.data.frame(TheSurface)
+  
+  # create title for plot
+  plotTitle <- str_c(nameDf, " Distribution ", yearID)
+  
+  # print to console
+  print(plotTitle)
+  
+  # plot the individual interpolation surfaces
+  plot <- ggplot() +
+    geom_path(data = coast, aes(x = long, y = lat, group = group)) +
+    geom_tile(data = TheSurface, 
+              aes(x = x, y = y, fill = var1.pred)) + 
+    coord_equal() +
+    xlim(-129.5, -123.5) +
+    ylim(48, 51.5) +
+    scale_fill_viridis_c() +
+    theme_bw() +
+    theme(legend.position = "none") +
+    labs(title = plotTitle,
+         x = "",
+         y = "") 
+  
+  plotName <- paste0(OutputFolder, "/KrigingHS", i, ".png")
+  
+  ggsave(plotName, plot)
+  
+  # add new data frame to list
+  mylistHS[[nameDf]] <- plot
+}
+
+# pull out of list
+krig_cmHS <- mylistHS[["Chum"]]
+krig_coHS <- mylistHS[["Coho"]]
+krig_seHS <- mylistHS[["Sockeye"]]
+krig_ckHS <- mylistHS[["Chinook"]]
+#krig_pkHS <- mylistHS[["Pink"]] # no pinks
+
+# add Kriging plots together
+krig_HS <- egg::ggarrange(krig_ckHS, krig_cmHS, krig_coHS, krig_seHS)
+krig_HS
+
+
 #####################################
 # Map IPES and high seas tows
 #####################################
@@ -719,6 +938,8 @@ ggsave("Output/2019/IPES_Tows.png", map_ipes)
 map_both <- egg::ggarrange(map_hs, map_ipes, 
                            nrow = 1)
 map_both
+
+ggsave("Output/2019/HSvsIPESSurveyMaps.png", map_both)
 
 #####################################
 # Length to weight residuals 
@@ -912,14 +1133,17 @@ residsLW_all <- residsLW %>%
     labs(x = "Ocean Sample Year") +
     geom_hline(yintercept = 0, color = "black", size = 1) +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-    theme(panel.grid.minor.y = element_blank(), 
-          panel.grid.major.x = element_blank(), 
+    theme(#axis.text.x = element_text(angle = 90, hjust = 1),
+          panel.grid.minor.y = element_blank(), 
+          #panel.grid.major.x = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black"),
           strip.text = element_text(size = 14),
           axis.title = element_text(face = "bold", size = 14),
           axis.text = element_text(size = 14)) +
-    scale_x_discrete(drop = FALSE)
+    scale_x_discrete(drop = FALSE,
+                     breaks = c(1995, 2000, 2005, 2010, 2015))
+  
+  ggsave("Output/2019/LW_all.png")
 
 # # combine all LW plots
 # lw_all <- egg::ggarrange(boxplot_ck, boxplot_cm, boxplot_co, boxplot_se)
