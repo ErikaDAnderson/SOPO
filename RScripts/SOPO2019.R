@@ -910,7 +910,7 @@ map_hs <- ggplot() +
         panel.grid.major = element_blank(), 
         panel.background = element_rect(fill = "white",colour = "black"),
         title = element_text(face = "bold", size = 14)) +
-  labs(title = "High Seas Salmon 1998-2018",
+  labs(title = "High Seas Salmon 1998-2015", # has data to 2018 but confusing in report so changed
        x = "",
        y = "") 
 
