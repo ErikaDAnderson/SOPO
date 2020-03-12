@@ -729,10 +729,11 @@ speciesVec <- c(112, 115, 118, 124)
         ylim(48, 51.5) +
           scale_fill_viridis_c() +
           theme_bw() +
-          theme(legend.position = "none") +
+          #theme(legend.position = "none") + # used for presentation
           labs(title = plotTitle,
                x = "",
-               y = "") 
+               y = "",
+               fill = "ln(CPUE+1)") 
         
         plotName <- paste0(OutputFolder, "/Kriging", i, ".png")
         
