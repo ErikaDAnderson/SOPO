@@ -42,10 +42,10 @@ library(readxl) # read excel files for GSI
 # CPUE data
 # load as csv file since view built on views
 # use for swept volume and join to catch 
-# use BRIDGE_FIELD_ID becuase different database version
+# use BRIDGE_FIELD_ID because different database version
 
 # March 2020 adjustments to view based on target depth averages instead of overall averages
-# from IPES_TrawlBC_v20.02b database 
+# from IPES_TrawlDB_v20.02b database 
 volume_ipes_orig <- read_csv("Input/2019/JB_VIEW_IPES_CPUE_BRIDGE_LOG_FIELD_ID.csv")
 
 # estalish connection to IPES Access database
@@ -147,7 +147,7 @@ cpue_ipes_salmon <- cpue_ipes_orig %>%
 # load high seas data
 #####################################
 # estalish connection to high sea Access database
-db_hs <- "C:/Users/andersoned/Documents/BCSI/High Seas Salmon Database/HSSALMON.accdb"
+db_hs <- "C:/Users/andersoned/Documents/High Seas Salmon Database/HSSALMON.accdb"
 myconn_hs <- odbcConnectAccess2007(db_hs)
 
 # get bridge data from high seas
@@ -730,7 +730,7 @@ speciesVec <- c(112, 115, 118, 124)
           scale_fill_viridis_c() +
           theme_bw() +
           #theme(legend.position = "none") + # used for presentation
-          labs(title = plotTitle,
+          labs(title = nameDf,
                x = "",
                y = "",
                fill = "ln(CPUE+1)") 
@@ -753,10 +753,11 @@ krig_ck <- mylist[["Chinook"]]
 krig_all <- egg::ggarrange(krig_ck, krig_cm, krig_co, krig_se)
 krig_all
 
-# save combined plot
-ggsave(str_c(OutputFolder, "/Kriging_All.png"), krig_all)
-# copy from R window to avoid introducing white margins to plot for power point
+### added legend to Krigged map for publication
+# changed title = nameDf from title = plotTitle
+# copy plot from R window to avoid introducing white margins to plot
 
+########################################
 ### try Kriging on high seas data to see distribution
 #### ten years ago in 2009
 
