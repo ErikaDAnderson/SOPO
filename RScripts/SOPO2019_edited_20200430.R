@@ -131,6 +131,7 @@ volume_ipes_orig <- read_csv(here::here("Input", "2019", "JB_VIEW_IPES_CPUE_BRID
 # open connection to database
 myconn_ipes <- odbcConnectAccess2007(db_ipes)
 
+# tows
 tows_ipes_orig <- sqlQuery(myconn_ipes, "SELECT TRIP.TRIP_YEAR, BRIDGE_LOG.EVENT_TYPE, 
 BRIDGE_LOG.START_LATITUDE, BRIDGE_LOG.START_LONGITUDE, 
 IIf(DatePart('h',[BRIDGE_LOG].[END_DEPLOYMENT_TIME])>20.9 Or 
@@ -372,7 +373,6 @@ cpue_hs <- cpue_hs %>%
 # need to add zero tows to IPES for individual salmon species
 
 # make function to add zero tows to each salmon speies
-
 zero_fn <- function(cpue_ipes_salmon, tows_ipes, speciesName) {
   
   cpue_ipes_salmon %>%
