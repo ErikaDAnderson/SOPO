@@ -367,14 +367,16 @@ cpueNum_ipes_catch <- cpue_ipes %>%
 
 # check that catch and tow data are the same for IPES
 
-# make year with number of tows vector for label
-# add 2018 IPES and 2018 high seas together
-# use hs for 1998 to 2017
-# use IPES for 2017 and 2019
-yearTowVec <- c("1998\n(65)", "1999\n(65)", "2000\n(80)", "2001\n(115)", "2002\n(65)", "2003\n(40)",
-                "2004\n(75)", "2005\n(70)","2006\n(85)", "2007\n(160)", "2008\n(155)", "2009\n(140)",
-                "2010\n(155)", "2011\n(155)", "2012\n(120)","2013\n(100)", "2014\n(35)", "2015\n(165)",
-                "2016\n(0)", "2017\n(53)", "2018\n(91)", "2019\n(68)")
+# # never used this in publication
+# # if using, check that tows are not counted for each species, rather than for individual tows
+# # make year with number of tows vector for label
+# # add 2018 IPES and 2018 high seas together
+# # use hs for 1998 to 2017
+# # use IPES for 2017 and 2019
+# yearTowVec <- c("1998\n(65)", "1999\n(65)", "2000\n(80)", "2001\n(115)", "2002\n(65)", "2003\n(40)",
+#                 "2004\n(75)", "2005\n(70)","2006\n(85)", "2007\n(160)", "2008\n(155)", "2009\n(140)",
+#                 "2010\n(155)", "2011\n(155)", "2012\n(120)","2013\n(100)", "2014\n(35)", "2015\n(165)",
+#                 "2016\n(0)", "2017\n(53)", "2018\n(91)", "2019\n(68)")
 
 # create function to calculate anomalies for each salmon species
 anom_fn <- function(df, speciesCode) {
