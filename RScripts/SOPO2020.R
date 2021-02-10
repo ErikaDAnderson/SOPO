@@ -5,13 +5,14 @@
 # R Version: 3.6.1
 #
 # State of the Pacific Ocean meeting March 2021
-# CPUE anomalies using swept volume
+# HSSALMON database limited to same areas (DE, HS, QCSD) in fall (SEP, OCT, NOV)
+# no IPES database needed since no fall surveys
+# CPUE anomalies by species and region using swept volume
+# Length to weight residuals by species and region (QCSD, HS, DE)
+
 # Kriging of CPUE from Queen Charlotte Sound to Dixon Entrance
-# Length to weight residuals by region (QCSD, HS, DE)
 # Calorimetry results (if available)
 # Genetic stock identification (if available)
-# HSSALMON database limited to same area in fall only
-# no IPES database needed since no fall surveys for comparison
 # incorporate water profiles somehow as graphic?
 #
 #=====================================================================================================
@@ -22,6 +23,9 @@ library(here) # to use relative file names
 library(lubridate) # dates
 library(RODBC) # MS Access databases
 library(patchwork) # combine plots
+library(modelr) # models length to weight, residuals
+library(broom) # evaluate models
+
 # library(viridis) # colors graphs
 # library(sf) # spatial manipulation (newer than sp) so works with ggplot2
 # library(sp) # spatial data manipulation
@@ -29,7 +33,6 @@ library(patchwork) # combine plots
 # library(gstat) # model fit & Krige interpolation
 # library(data.table) # bind data frames together from list
 # library(raster) # load raster for grid (and predict function, alternative to gstat krige)
-library(modelr) # models length to weight, residuals
 # library(rcompanion) # confident intervals
 # library(readxl) # read excel files for GSI
 
@@ -72,7 +75,7 @@ close(myconn_hs)
 # # save all tows as csv to display in ArcMap to make a raster
 # write_csv(tows_hs_orig, file = str_c(outputFolder, "tows_hs_orig.csv"))
 
-# after mapping csv of tows; I recommend removing some tows as not in regions
+# after mapping csv of tows, recommend removing some tows as not really within regions
 ### might want to change these in database
 removeStations <- c("HS9819-D06", "HS9819-D07", "HS9819-D08", "HS9819-D09",
                     "HS9819-D11", "HS9819-D13",
@@ -110,7 +113,7 @@ cpue_hs_ck <- zero_fn(cpue_hs_orig, tows_hs_orig, "124J")
 
 # check that tows between species are same 
 # # ck, cm, co have 299 rows but pk = 302 and se = 300 why?
-# one query had 15 m instead of 20 m head rope depths - fized
+# one query had 15 m instead of 20 m head rope depths - fixed
 # anyDuplicated(cpue_hs_se$STATION_ID)
 # anyDuplicated(cpue_hs_pk$ STATION_ID)
 # 
@@ -121,7 +124,7 @@ cpue_hs_ck <- zero_fn(cpue_hs_orig, tows_hs_orig, "124J")
 cpue_hs <- rbind(cpue_hs_ck, cpue_hs_cm, cpue_hs_co, cpue_hs_pk, cpue_hs_se)
 
 
-# check for empty net dimensions and distance values
+# check for empty net dimensions and distance values or zeros
 missing_hs <- cpue_hs %>%
   filter(is.na(NET_OPENING_WIDTH)| is.na(NET_OPENING_HEIGHT) | is.na(DISTANCE)| 
            NET_OPENING_WIDTH == 0 | NET_OPENING_HEIGHT == 0 | DISTANCE == 0)
@@ -159,6 +162,7 @@ cpueNum_hs_tows <- cpue %>%
   count()
 
 # create function to calculate anomalies for each salmon species
+# add ability to calculate regions seperately
 anomFn <- function(cpue, speciesCode, seperateReg) {
   
   if (seperateReg == FALSE) {
@@ -171,8 +175,6 @@ anomFn <- function(cpue, speciesCode, seperateReg) {
   # calculate mean and standard deviation for time series
   meanCPUE_ts <- mean(cpue_select$meanCPUE, na.rm = TRUE)
   sdCPUE_ts <- sd(cpue_select$meanCPUE, na.rm = TRUE)
-  
-  ###***** come back to this for anomalies by species???
   
   # calculate anomalies
   cpue_select <- cpue_select %>%
@@ -187,16 +189,42 @@ anomFn <- function(cpue, speciesCode, seperateReg) {
   }
   
   if (seperateReg == TRUE) {
+    
+    mylist <- list()
+    loopVector <- 1:3
+    
+    for (i in seq_along(loopVector)) {
+      
+      regVector <- unique(cpue$REGION_CODE)
+      regionName <- regVector[i]
+    
     cpue_select <- cpue %>%
-      filter(SPECIES_CODE == speciesCode) %>%
+      filter(SPECIES_CODE == speciesCode & REGION_CODE == regionName) %>%
       group_by(TRIP_YEAR, REGION_CODE) %>%
       summarize(meanCPUE = mean(logCPUE1, na.rm = TRUE),
                 .groups = "drop") 
     
-    ###***** come back to this for anomalies by species and region
+    # calculate mean and standard deviation for time series
+    meanCPUE_ts <- mean(cpue_select$meanCPUE, na.rm = TRUE)
+    sdCPUE_ts <- sd(cpue_select$meanCPUE, na.rm = TRUE)
+    
+    # calculate anomalies
+    cpue_select <- cpue_select %>%
+      mutate(anom = (meanCPUE - meanCPUE_ts)/sdCPUE_ts,
+             speciesCol = case_when(
+               speciesCode == "108J" ~ "Pink",
+               speciesCode == "112J" ~ "Chum",
+               speciesCode == "115J" ~ "Coho",
+               speciesCode == "118J" ~ "Sockeye",
+               speciesCode == "124J" ~ "Chinook"))
+    
+    mylist[[i]] <- cpue_select
+    
+    }
+    
+    # make regions into one databframe
+    cpue_select <- bind_rows(mylist)
   }
-  
-
   
   # make year factor for nice graph
   cpue_select$Year_fac <- as.factor(cpue_select$TRIP_YEAR)
@@ -290,11 +318,12 @@ cpueAll <- cpueGraphFN(cpue_noReg, NA)
 cpueAll
 ggsave(str_c(outputFolder, "CPUE_NorthCoast2020", str_replace_all(Sys.Date(), "-", ""),".png"))
 
+# combine plots
 cpueDE <- cpueGraphFN(cpue_Reg, "DE") 
 cpueDE
-cpueHS <- cpueGraphFN(cpue_noReg, "HS") 
+cpueHS <- cpueGraphFN(cpue_Reg, "HS") 
 cpueHS
-cpueQCSD <- cpueGraphFN(cpue_noReg, "QCSD") 
+cpueQCSD <- cpueGraphFN(cpue_Reg, "QCSD") 
 cpueQCSD
 
 # combine into one plot
@@ -303,36 +332,8 @@ cpueRegions <- cpueDE / cpueHS / cpueQCSD
 ggsave(str_c(outputFolder, "CPUE_Regions2020", str_replace_all(Sys.Date(), "-", ""),".png"),
        height = 9, units = "in")
 
-# #####################################
-# # use Kriging to see spatial distribution
-# #####################################
-# # folder name for Kriging outputs
-# OutputKriging <- str_c(outputFolder, "Kriging", Sys.Date())
-# 
-# # create directory for plots
-# dir.create(OutputKriging)
-# 
-# 
-# # need grid for Kriging
-# saFilename <- here::here("Input/Spatial/ipes_wgs84.tif")
-# 
-# # load raster for study area to crop interpolation grid
-# sa <- raster(saFilename)
-# class(sa)
-# 
-# # convert to spatial point data frame
-# sa <- rasterToPoints(sa, spatial = TRUE)
-# class(sa)
-# 
-# # convert to pixel data frame
-# gridded(sa) = TRUE
-# class(sa)
-# 
-# # check grid
-# plot(sa)
-
 #####################################
-# load more high seas data
+# load length weight high seas data
 #####################################
 # estalish connection to high sea Access database
 myconn_hs <- odbcConnectAccess2007(db_hs)
@@ -346,44 +347,14 @@ FROM (BIOLOGICAL_JUNCTION INNER JOIN BIOLOGICAL_ALL ON BIOLOGICAL_JUNCTION.FISH_
 WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20) AND ((BIOLOGICAL_ALL.SPECIES_CODE)='108' Or (BIOLOGICAL_ALL.SPECIES_CODE)='112' Or (BIOLOGICAL_ALL.SPECIES_CODE)='115' Or (BIOLOGICAL_ALL.SPECIES_CODE)='118' Or (BIOLOGICAL_ALL.SPECIES_CODE)='124'));
                        ")
 
-# get calorimetry data from high seas
-# regions QCSD, HS, DE
-# fall only (SEP, OCT, NOV)
-# headrope depth <=20 m to omit deeper tows
-cal_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.MONTH, BIOLOGICAL_JUNCTION.FISH_NUMBER, CALORIMETRY.HEAT_RELEASED_CAL, CALORIMETRY.HEAT_RELEASED_KJ, CALORIMETRY.DUPLICATE, CALORIMETRY.DATA_ISSUE, BRIDGE_COMPLETE.HEAD_DEPTH, BRIDGE_COMPLETE.REGION_CODE
-FROM (BIOLOGICAL_JUNCTION INNER JOIN CALORIMETRY ON BIOLOGICAL_JUNCTION.FISH_NUMBER = CALORIMETRY.FISH_NUMBER) INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID
-WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((CALORIMETRY.DATA_ISSUE)='N') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20) AND ((BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD'));
-                        ")
-
-# get calorimetry data for hisoric data
-# regions QCSD, HS, DE
-# fall only (SEP, OCT, NOV)
-# headrope depth <=20 m to omit deeper tows
-cal_historic_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.YEAR, BRIDGE_COMPLETE.MONTH, BIOLOGICAL_ALL.SPECIES_CODE, BIOLOGICAL_JUNCTION.FISH_NUMBER, PROXIMATE_FISH.ENERGY_BOMB, PROXIMATE_FISH.ENERGY_BOMB_BLIND_DUPL, BRIDGE_COMPLETE.REGION_CODE, BRIDGE_COMPLETE.HEAD_DEPTH
-FROM ((BIOLOGICAL_JUNCTION INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) INNER JOIN PROXIMATE_FISH ON BIOLOGICAL_JUNCTION.FISH_NUMBER = PROXIMATE_FISH.FISH_NUMBER) INNER JOIN BIOLOGICAL_ALL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL_ALL.FISH_NUMBER
-WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20));
-                          ")
 
 # close database
 close(myconn_hs)
 
-
-# #####################################
-# # use Kriging to see spatial distribution
-# #####################################
-# # folder name for Kriging outputs
-# OutputKriging <- str_c(outputFolder, "Kriging", Sys.Date())
-# 
-# # create directory for plots
-# dir.create(OutputKriging)
-# 
-# 
-# # need grid for Kriging
-
 #####################################
 # Length to weight residuals 
 #####################################
-# present as residuals over time series
+# residuals over time series
 # gives estimate of condition of salmon
 
 # wrangle hs data
@@ -405,12 +376,16 @@ lw <- lw_hs %>%
 # plot prelim data
 ggplot(lw, aes(log10(LENGTH), log10(WEIGHT), color = REGION_CODE)) +
   geom_point() +
-  geom_smooth(method = "lm") +
-  facet_wrap(~SPECIES_CODE)
+  geom_smooth(method = "lm", formula = 'y~x') +
+  facet_wrap(~SPECIES_CODE) +
+  theme_bw()
 
-#### plot all regions together first (then repeat with region as factor in model)
-# fit model
+# fit models
 modLW <- lm(log10(WEIGHT) ~ log10(LENGTH) * factor(SPECIES_CODE), data = lw)
+modLW_Reg <- lm(log10(WEIGHT) ~ log10(LENGTH) * factor(SPECIES_CODE) * factor(REGION_CODE), data = lw)
+broom::glance(modLW,modLW_Reg)
+anova(modLW, modLW_Reg) 
+# looks like region does add to model
 
 # add residuals
 residsLW <- lw %>%
@@ -476,8 +451,12 @@ LWboxplot_fn <- function(df, speciesCode, speciesName) {
     theme(panel.grid.minor.y = element_blank(), 
           #panel.grid.major.x = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black")) + 
-    scale_y_continuous(expand = c(0, 0), limits = c(-.22, .22)) +
-    theme(title = element_text(face = "bold", size = 14)) +
+    scale_y_continuous(limits = c(-.22, .22)) +
+    scale_x_discrete(breaks = c(2000, 2005, 2010, 2015, 2020)) +
+    theme(title = element_text(face = "bold", size = 14),
+          axis.title = element_text(face = "bold", size = 14),
+          axis.text = element_text(size = 12),
+          strip.text = element_text(size = 14)) +
     labs(title = plotTitle,
          Y = "",
          x = "Year") +
@@ -527,12 +506,6 @@ ggsave(str_c(outputFolder, "LW_Chinook.png"))
 
 ##### repeat with region within model
 
-# fit model
-modLW_Reg <- lm(log10(WEIGHT) ~ log10(LENGTH) * factor(SPECIES_CODE) * factor(REGION_CODE), data = lw)
-
-# look at model
-broom::glance(modLW_Reg)
-
 # add residuals
 residsLW_Reg <- lw %>%
   add_residuals(., modLW_Reg) %>%
@@ -561,10 +534,14 @@ LWboxplotReg_fn <- function(df, speciesCode, speciesName) {
   # graph
   ggplot(data = df_select, aes(x = Year, y = Residuals, group = Year)) + 
     geom_boxplot(fill = "darkred") + 
-    scale_y_continuous(expand = c(0, 0), limits = c(-.22, .22)) +
-    theme(panel.grid.minor.y = element_blank(), 
+    scale_y_continuous(limits = c(-.22, .22)) +
+    scale_x_discrete(breaks = c(2000, 2005, 2010, 2015, 2020)) +
+    theme(title = element_text(face = "bold", size = 14),
+          axis.title = element_text(face = "bold", size = 14),
+          axis.text = element_text(size = 12),
+          strip.text = element_text(size = 14),
+          panel.grid.minor.y = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black"), 
-          title = element_text(face = "bold", size = 14),
           strip.background = element_rect(fill = "white")) +
     labs(title = plotTitle,
          Y = "",
@@ -599,21 +576,121 @@ boxplot_ck_reg
 ggsave(str_c(outputFolder, "LW_Chinook_Reg.png"))
 
 # How about we graph the residuals for 2020 faceted by region and grouped by species
+# both models look similar so can use either
+residsLW %>%
+  filter(Year == 2020) %>%
+  mutate(SpeciesName = case_when(
+    SPECIES_CODE == 108 ~ "Pink",
+    SPECIES_CODE == 112 ~ "Chum",
+    SPECIES_CODE == 115 ~ "Coho",
+    SPECIES_CODE == 118 ~ "Sockeye",
+    SPECIES_CODE == 124 ~ "Chinook"),
+    RegionName = case_when(
+      REGION_CODE == "DE" ~ "Dixon Entrance",
+      REGION_CODE == "HS" ~ "Hecate Strait",
+      REGION_CODE == "QCSD" ~ "Queen Charlotte Sound")) %>%
+  
+  ggplot(aes(x = as.factor(SpeciesName), y = Residuals, group = SpeciesName)) + 
+  geom_boxplot(fill = "darkred") + 
+  scale_y_continuous(expand = c(0, 0)) +
+  #, limits = c(-.22, .22)) +
+  theme(panel.grid.minor.y = element_blank(), 
+        panel.background = element_rect(fill = "white",colour = "black"), 
+        title = element_text(face = "bold", size = 14),
+        strip.background = element_rect(fill = "white"),
+        axis.text = element_text(size = 12),
+        strip.text = element_text(size = 14)) +
+  geom_hline(yintercept = 0, color = "black", size = 1) +
+  facet_wrap(~RegionName, ncol = 1) +
+  labs(y = "Residuals",
+       x = "Species") 
+
+ggsave(str_c(outputFolder, "LW2020All", str_replace_all(Sys.Date(), "-", ""),".png"),
+       height = 6, units = "in")
+
+
 residsLW_Reg %>%
   filter(Year == 2020) %>%
-  ggplot(aes(x = as.factor(SPECIES_CODE), y = Residuals, group = SPECIES_CODE)) + 
+  mutate(SpeciesName = case_when(
+    SPECIES_CODE == 108 ~ "Pink",
+    SPECIES_CODE == 112 ~ "Chum",
+    SPECIES_CODE == 115 ~ "Coho",
+    SPECIES_CODE == 118 ~ "Sockeye",
+    SPECIES_CODE == 124 ~ "Chinook"),
+    RegionName = case_when(
+      REGION_CODE == "DE" ~ "Dixon Entrance",
+      REGION_CODE == "HS" ~ "Hecate Strait",
+      REGION_CODE == "QCSD" ~ "Queen Charlotte Sound")) %>%
+  
+  ggplot(aes(x = as.factor(SpeciesName), y = Residuals, group = SpeciesName)) + 
   geom_boxplot(fill = "darkred") + 
   scale_y_continuous(expand = c(0, 0)) +
 #, limits = c(-.22, .22)) +
   theme(panel.grid.minor.y = element_blank(), 
         panel.background = element_rect(fill = "white",colour = "black"), 
         title = element_text(face = "bold", size = 14),
-        strip.background = element_rect(fill = "white")) +
+        strip.background = element_rect(fill = "white"),
+        axis.text = element_text(size = 12),
+        strip.text = element_text(size = 14)) +
   geom_hline(yintercept = 0, color = "black", size = 1) +
-  facet_wrap(~REGION_CODE, ncol = 1) +
+  facet_wrap(~RegionName, ncol = 1) +
   labs(y = "Residuals",
        x = "Species") 
 
-# make labels better for species and regions
+ggsave(str_c(outputFolder, "LW2020_Reg", str_replace_all(Sys.Date(), "-", ""),".png"),
+       height = 6, units = "in")
 
-       
+#####################################
+# load calorimetry high seas data
+#####################################
+# estalish connection to high sea Access database
+myconn_hs <- odbcConnectAccess2007(db_hs)
+
+# get calorimetry data from high seas
+# regions QCSD, HS, DE
+# fall only (SEP, OCT, NOV)
+# headrope depth <=20 m to omit deeper tows
+cal_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.MONTH, BIOLOGICAL_JUNCTION.FISH_NUMBER, CALORIMETRY.HEAT_RELEASED_CAL, CALORIMETRY.HEAT_RELEASED_KJ, CALORIMETRY.DUPLICATE, CALORIMETRY.DATA_ISSUE, BRIDGE_COMPLETE.HEAD_DEPTH, BRIDGE_COMPLETE.REGION_CODE
+FROM (BIOLOGICAL_JUNCTION INNER JOIN CALORIMETRY ON BIOLOGICAL_JUNCTION.FISH_NUMBER = CALORIMETRY.FISH_NUMBER) INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID
+WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((CALORIMETRY.DATA_ISSUE)='N') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20) AND ((BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD'));
+                        ")
+
+# get calorimetry data for hisoric data
+# regions QCSD, HS, DE
+# fall only (SEP, OCT, NOV)
+# headrope depth <=20 m to omit deeper tows
+cal_historic_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.YEAR, BRIDGE_COMPLETE.MONTH, BIOLOGICAL_ALL.SPECIES_CODE, BIOLOGICAL_JUNCTION.FISH_NUMBER, PROXIMATE_FISH.ENERGY_BOMB, PROXIMATE_FISH.ENERGY_BOMB_BLIND_DUPL, BRIDGE_COMPLETE.REGION_CODE, BRIDGE_COMPLETE.HEAD_DEPTH
+FROM ((BIOLOGICAL_JUNCTION INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) INNER JOIN PROXIMATE_FISH ON BIOLOGICAL_JUNCTION.FISH_NUMBER = PROXIMATE_FISH.FISH_NUMBER) INNER JOIN BIOLOGICAL_ALL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL_ALL.FISH_NUMBER
+WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20));
+                          ")
+
+# close database
+close(myconn_hs)
+
+# #####################################
+# # use Kriging to see spatial distribution
+# #####################################
+# # folder name for Kriging outputs
+# OutputKriging <- str_c(outputFolder, "Kriging", Sys.Date())
+# 
+# # create directory for plots
+# dir.create(OutputKriging)
+# 
+# 
+# # need grid for Kriging
+# saFilename <- here::here("Input/Spatial/ipes_wgs84.tif")
+# 
+# # load raster for study area to crop interpolation grid
+# sa <- raster(saFilename)
+# class(sa)
+# 
+# # convert to spatial point data frame
+# sa <- rasterToPoints(sa, spatial = TRUE)
+# class(sa)
+# 
+# # convert to pixel data frame
+# gridded(sa) = TRUE
+# class(sa)
+# 
+# # check grid
+# plot(sa)
