@@ -286,11 +286,21 @@ cpueGraphFN <- function(df, regionName) {
     regionNameLong <- if (regionName == "DE") {"Dixon Entrance"
     } else if (regionName == "HS") {"Hecate Strait" 
     } else if (regionName == "QCSD") {"Queen Charlotte Sound"
-          }
+    }
     
-    ggplot(data = filter(cpue_Reg, REGION_CODE == regionName),
+    dataOld <- cpue_Reg %>%
+      filter(REGION_CODE == regionName) %>%
+      mutate(anom = if_else(Year_fac == 2020, NA_real_, anom))
+    
+    dataCurrent <- cpue_Reg %>%
+      filter(REGION_CODE == regionName) %>%
+      mutate(anom = if_else(Year_fac != 2020, NA_real_, anom))
+    
+    ggplot(data = dataOld,
            aes(x = Year_fac, y = anom)) +
-      geom_bar(stat = "identity", fill = "darkred") +
+      geom_bar(stat = "identity") +
+      geom_bar(data = dataCurrent, aes(x = Year_fac, y = anom),
+               stat = "identity", fill = "darkred") +
       theme_bw() +
       geom_hline(yintercept = 0) +
       #geom_hline(yintercept = c(-1, 1), linetype = "dashed") +
@@ -308,7 +318,8 @@ cpueGraphFN <- function(df, regionName) {
         strip.text = element_text(size = 14),
         panel.grid.minor.y = element_blank(), 
         panel.background = element_rect(fill = "white", colour = "black"),
-        strip.background = element_rect(fill = "white")) +
+        strip.background = element_rect(fill = "white"),
+        plot.subtitle = element_text(hjust = 0.5)) +
       labs(subtitle = regionNameLong)
   }
 }
@@ -359,9 +370,19 @@ close(myconn_hs)
 
 # wrangle hs data
 # remove adults
-# use 350 mm as limit for all species
+# definition of juveniles by species for fall from bridge table
+# SE PK CM < 300 mm
+# CK < 350 mm
+# CO < 400 mm
 lw_hs <- lw_hs_orig %>%
-  filter(SHIP_LENGTH < 350) %>%
+  mutate(AGE = case_when(
+    SPECIES_CODE == 108 & SHIP_LENGTH < 300 ~ "J",
+    SPECIES_CODE == 112 & SHIP_LENGTH < 300 ~ "J",
+    SPECIES_CODE == 118 & SHIP_LENGTH < 300 ~ "J",
+    SPECIES_CODE == 124 & SHIP_LENGTH < 350 ~ "J",
+    SPECIES_CODE == 115 & SHIP_LENGTH < 400 ~ "J",
+    TRUE ~ "A")) %>%
+  filter(AGE == "J") %>%
   rename(TRIP_YEAR = YEAR,
          LENGTH = SHIP_LENGTH,
          WEIGHT = SHIP_WT) %>%
@@ -371,30 +392,43 @@ lw_hs <- lw_hs_orig %>%
 # removed rows with blanks
 lw <- lw_hs %>%
   filter(!is.na(WEIGHT)) %>%
-  filter(!is.na(LENGTH)) 
+  filter(!is.na(LENGTH)) %>%
+  
+  # remove outliers from sockeye until they are fact checked
+  ### TZ is checking in office for new updates
+  ### already corrected BCSI-2019125-T02-007 from length 102 to 162 in local db
+  filter(FISH_NUMBER != "BCSI-2020017-HN04-118J-001") %>%
+  filter(FISH_NUMBER != "HS201145-T06-118-003")
 
 # plot prelim data
-ggplot(lw, aes(log10(LENGTH), log10(WEIGHT), color = REGION_CODE)) +
+ggplot(lw, aes(log10(LENGTH), log10(WEIGHT), 
+               #color = as.factor(SPECIES_CODE), 
+               group = SPECIES_CODE)) +
   geom_point() +
   geom_smooth(method = "lm", formula = 'y~x') +
   facet_wrap(~SPECIES_CODE) +
   theme_bw()
 
+ggsave(str_c(outputFolder, "LW_linearModels", str_replace_all(Sys.Date(), "-", ""),".png"),
+       height = 4, units = "in")
+
 # fit models
+modLW_simp <- lm(log10(WEIGHT) ~ log10(LENGTH), data = lw)
 modLW <- lm(log10(WEIGHT) ~ log10(LENGTH) * factor(SPECIES_CODE), data = lw)
 modLW_Reg <- lm(log10(WEIGHT) ~ log10(LENGTH) * factor(SPECIES_CODE) * factor(REGION_CODE), data = lw)
 broom::glance(modLW,modLW_Reg)
-anova(modLW, modLW_Reg) 
-# looks like region does add to model
+anova(modLW_simp, modLW, modLW_Reg) 
+# species and region improves to model
+# see later that graphically has little difference between species and species-region models
 
 # add residuals
 residsLW <- lw %>%
   add_residuals(., modLW) %>%
   rename(Year = TRIP_YEAR,
-         Residuals = resid)
+         Residuals = resid) 
 
 # expand grid for zero years
-yearGrid <- expand_grid(Year = 1996:2020) %>%
+yearGrid <- expand_grid(Year = 1998:2019) %>%
   mutate(ZeroCount = 0,
          Year = as.integer(Year))
 
@@ -403,10 +437,9 @@ lwCounts_fn <- function(df, speciesCode, yearGrid) {
   
   # select species
   df_select <- df %>%
-    filter(SPECIES_CODE == speciesCode)
+    filter(SPECIES_CODE == speciesCode) %>%
   
   # calculate number of fish per year
-  df_select <- df_select %>%
     group_by(Year) %>%
     count() %>%
     rename(PrelimCount = n) %>%
@@ -427,13 +460,6 @@ lwCount_co <- lwCounts_fn(residsLW, 115, yearGrid)
 lwCount_se <- lwCounts_fn(residsLW, 118, yearGrid)
 lwCount_ck <- lwCounts_fn(residsLW, 124, yearGrid)
 
-# make years as factors for graphs
-residsLW$Year <- factor(residsLW$Year, 
-                        levels = c("1996", "1997", "1998", "1999", "2000", "2001", 
-                                   "2002","2003", "2004", "2005", "2006", "2007", 
-                                   "2008", "2009", "2010", "2011", "2012", "2013", 
-                                   "2014", "2015", "2016", "2017", "2018", "2019", 
-                                   "2020"))
 
 # make function to graph LW as boxplots
 LWboxplot_fn <- function(df, speciesCode, speciesName) {
@@ -449,10 +475,8 @@ LWboxplot_fn <- function(df, speciesCode, speciesName) {
   ggplot(data = df_select, aes(x = Year, y = Residuals, group = Year)) + 
     geom_boxplot(fill = "darkred") + 
     theme(panel.grid.minor.y = element_blank(), 
-          #panel.grid.major.x = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black")) + 
     scale_y_continuous(limits = c(-.22, .22)) +
-    scale_x_discrete(breaks = c(2000, 2005, 2010, 2015, 2020)) +
     theme(title = element_text(face = "bold", size = 14),
           axis.title = element_text(face = "bold", size = 14),
           axis.text = element_text(size = 12),
@@ -466,6 +490,7 @@ LWboxplot_fn <- function(df, speciesCode, speciesName) {
 # pink LW plot
 boxplot_pk <- LWboxplot_fn(residsLW, 108, "Pink")
 boxplot_pk 
+## use if adding number of tows manually for paper
 # +
 #   scale_x_discrete(drop = FALSE,
 #                    labels = c("1996\n(0)", "1997\n(0)", "1998\n(2)", "1999\n(28)", "2000\n(339)", 
@@ -506,20 +531,15 @@ ggsave(str_c(outputFolder, "LW_Chinook.png"))
 
 ##### repeat with region within model
 
-# add residuals
+# add residuals and account for years without 
 residsLW_Reg <- lw %>%
   add_residuals(., modLW_Reg) %>%
   rename(Year = TRIP_YEAR,
-         Residuals = resid)
+         Residuals = resid) 
 
-
-# make years as factors for graphs
-residsLW_Reg$Year <- factor(residsLW_Reg$Year, 
-                        levels = c("1996", "1997", "1998", "1999", "2000", "2001", 
-                                   "2002","2003", "2004", "2005", "2006", "2007", 
-                                   "2008", "2009", "2010", "2011", "2012", "2013", 
-                                   "2014", "2015", "2016", "2017", "2018", "2019", 
-                                   "2020"))
+# expand grid for year without values to be represented on graph
+residsLW_Reg_exp <- residsLW_Reg %>%
+  full_join(., yearGrid, by = "Year") 
 
 # make function to graph LW as boxplots
 LWboxplotReg_fn <- function(df, speciesCode, speciesName) {
@@ -528,14 +548,22 @@ LWboxplotReg_fn <- function(df, speciesCode, speciesName) {
   df_select <- df %>%
     filter(SPECIES_CODE == speciesCode)
   
+  df_historic <- df_select %>%
+    mutate(Residuals = if_else(Year == 2020, NA_real_, Residuals))
+  
+  df_current <- df_select %>%
+    mutate(Residuals = if_else(Year != 2020, NA_real_, Residuals))
+    
+  
   # plot title
   plotTitle <- str_c(speciesName, " Length to Weight Relationship")
   
   # graph
-  ggplot(data = df_select, aes(x = Year, y = Residuals, group = Year)) + 
-    geom_boxplot(fill = "darkred") + 
-    scale_y_continuous(limits = c(-.22, .22)) +
-    scale_x_discrete(breaks = c(2000, 2005, 2010, 2015, 2020)) +
+  ggplot(data = df_historic, aes(x = Year, y = Residuals, group = Year)) + 
+    geom_boxplot(fill = "grey") + 
+    geom_boxplot(data = df_current, aes(x = Year, y = Residuals, group = Year),
+                 fill = "darkred") + 
+    #scale_y_continuous(limits = c(-.22, .22)) +
     theme(title = element_text(face = "bold", size = 14),
           axis.title = element_text(face = "bold", size = 14),
           axis.text = element_text(size = 12),
@@ -547,7 +575,7 @@ LWboxplotReg_fn <- function(df, speciesCode, speciesName) {
          Y = "",
          x = "Year") +
     geom_hline(yintercept = 0, color = "black", size = 1) +
-    facet_wrap(~REGION_CODE, ncol = 1) 
+    facet_wrap(~REGION_CODE, ncol = 1, scales = "free_y") 
 }
 
 # pink LW plot
@@ -576,7 +604,7 @@ boxplot_ck_reg
 ggsave(str_c(outputFolder, "LW_Chinook_Reg.png"))
 
 # How about we graph the residuals for 2020 faceted by region and grouped by species
-# both models look similar so can use either
+# after graphing both models; they look similar so can use either
 residsLW %>%
   filter(Year == 2020) %>%
   mutate(SpeciesName = case_when(
@@ -592,8 +620,6 @@ residsLW %>%
   
   ggplot(aes(x = as.factor(SpeciesName), y = Residuals, group = SpeciesName)) + 
   geom_boxplot(fill = "darkred") + 
-  scale_y_continuous(expand = c(0, 0)) +
-  #, limits = c(-.22, .22)) +
   theme(panel.grid.minor.y = element_blank(), 
         panel.background = element_rect(fill = "white",colour = "black"), 
         title = element_text(face = "bold", size = 14),
@@ -601,7 +627,7 @@ residsLW %>%
         axis.text = element_text(size = 12),
         strip.text = element_text(size = 14)) +
   geom_hline(yintercept = 0, color = "black", size = 1) +
-  facet_wrap(~RegionName, ncol = 1) +
+  facet_wrap(~RegionName, ncol = 1, scales = "free_y") +
   labs(y = "Residuals",
        x = "Species") 
 
@@ -624,8 +650,6 @@ residsLW_Reg %>%
   
   ggplot(aes(x = as.factor(SpeciesName), y = Residuals, group = SpeciesName)) + 
   geom_boxplot(fill = "darkred") + 
-  scale_y_continuous(expand = c(0, 0)) +
-#, limits = c(-.22, .22)) +
   theme(panel.grid.minor.y = element_blank(), 
         panel.background = element_rect(fill = "white",colour = "black"), 
         title = element_text(face = "bold", size = 14),
@@ -633,7 +657,7 @@ residsLW_Reg %>%
         axis.text = element_text(size = 12),
         strip.text = element_text(size = 14)) +
   geom_hline(yintercept = 0, color = "black", size = 1) +
-  facet_wrap(~RegionName, ncol = 1) +
+  facet_wrap(~RegionName, ncol = 1, scales = "free_y") +
   labs(y = "Residuals",
        x = "Species") 
 
