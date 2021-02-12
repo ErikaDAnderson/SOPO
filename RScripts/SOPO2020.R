@@ -683,13 +683,106 @@ WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDG
 # regions QCSD, HS, DE
 # fall only (SEP, OCT, NOV)
 # headrope depth <=20 m to omit deeper tows
-cal_historic_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.YEAR, BRIDGE_COMPLETE.MONTH, BIOLOGICAL_ALL.SPECIES_CODE, BIOLOGICAL_JUNCTION.FISH_NUMBER, PROXIMATE_FISH.ENERGY_BOMB, PROXIMATE_FISH.ENERGY_BOMB_BLIND_DUPL, BRIDGE_COMPLETE.REGION_CODE, BRIDGE_COMPLETE.HEAD_DEPTH
+cal_historic_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.Month, BIOLOGICAL_ALL.SPECIES_CODE, BIOLOGICAL_JUNCTION.FISH_NUMBER, PROXIMATE_FISH.ENERGY_BOMB, PROXIMATE_FISH.ENERGY_BOMB_BLIND_DUPL, BRIDGE_COMPLETE.REGION_CODE, BRIDGE_COMPLETE.HEAD_DEPTH, BIOLOGICAL_ALL.SHIP_LENGTH, BIOLOGICAL_ALL.SHIP_WT
 FROM ((BIOLOGICAL_JUNCTION INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) INNER JOIN PROXIMATE_FISH ON BIOLOGICAL_JUNCTION.FISH_NUMBER = PROXIMATE_FISH.FISH_NUMBER) INNER JOIN BIOLOGICAL_ALL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL_ALL.FISH_NUMBER
-WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20));
-                          ")
+WHERE (((BRIDGE_COMPLETE.Month)='SEP' Or (BRIDGE_COMPLETE.Month)='OCT' Or (BRIDGE_COMPLETE.Month)='NOV') AND ((BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20));
+                              ")
 
 # close database
 close(myconn_hs)
+
+#####################################
+# wrangle calorimetry data
+######################################
+
+# check that all juveniles from lengths
+
+# wrangle high seas data
+# only 6 sockeye completed from 2019 from QCSD
+cal_bcsi <- cal_hs_orig %>%
+  # average accross duplicates
+  group_by(FISH_NUMBER) %>%
+  summarize(HEAT_RELEASED_CAL = mean(HEAT_RELEASED_CAL, na.rm = TRUE),
+            HEAT_RELEASED_KJ = mean(HEAT_RELEASED_KJ, na.rm = TRUE),
+            .groups = "drop") %>%
+  # add species codes and length and weights
+  left_join(., residsLW, by = "FISH_NUMBER") %>%
+  filter(!is.na(SPECIES_CODE)) %>%
+  dplyr::select(FISH_NUMBER, HEAT_RELEASED_KJ, Year, SPECIES_CODE, REGION_CODE, Residuals)
+
+# wrangle historic
+cal_historic <- cal_historic_orig %>%
+  mutate(HEAT_RELEASED_KJ = if_else(is.na(ENERGY_BOMB_BLIND_DUPL), 
+                               ENERGY_BOMB, (ENERGY_BOMB + ENERGY_BOMB_BLIND_DUPL)/2),
+    LENGTH = SHIP_LENGTH,
+    WEIGHT = SHIP_WT) %>%
+  add_residuals(., modLW) %>%
+  rename(Residuals = resid) %>%
+  dplyr::select(FISH_NUMBER, HEAT_RELEASED_KJ, Year, SPECIES_CODE, REGION_CODE, Residuals)
+
+residsLW <- lw %>%
+  add_residuals(., modLW) 
+
+# bind historic to current calorimetry data
+cal_all <- rbind(cal_bcsi, cal_historic)
+
+# compare residuals to heat released values
+ggplot(data = cal_all, 
+       aes(HEAT_RELEASED_KJ, Residuals, color = REGION_CODE)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~SPECIES_CODE) +
+  theme_bw()
+
+# historic samples show length to weight condition factor not correlated to ED
+
+#####################################
+# get GSI available data
+#####################################
+
+# estalish connection to high sea Access database
+myconn_hs <- odbcConnectAccess2007(db_hs)
+
+# get gsi data
+# regions QCSD, HS, DE
+# fall only (SEP, OCT, NOV)
+# headrope depth <=20 m to omit deeper tows
+gsi_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.YEAR, BRIDGE_COMPLETE.REGION_CODE, BRIDGE_COMPLETE.HEAD_DEPTH, DNA_ALL_RESULTS_STOCKS.Species, BIOLOGICAL_JUNCTION.FISH_NUMBER, DNA_ALL_RESULTS_STOCKS.STOCK_FINAL, DNA_ALL_RESULTS_STOCKS.STOCK_1, DNA_ALL_RESULTS_STOCKS.PROB_1, DNA_ALL_RESULTS_STOCKS.STOCK_OVER50, DNA_STOCK_STOCK_FINAL_REGION.HS_REGION
+FROM (DNA_ALL_RESULTS_STOCKS INNER JOIN (BIOLOGICAL_JUNCTION INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) ON DNA_ALL_RESULTS_STOCKS.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER) LEFT JOIN DNA_STOCK_STOCK_FINAL_REGION ON DNA_ALL_RESULTS_STOCKS.STOCK_FINAL = DNA_STOCK_STOCK_FINAL_REGION.STOCK_FINAL
+WHERE (((BRIDGE_COMPLETE.YEAR)=2019 Or (BRIDGE_COMPLETE.YEAR)=2020) AND ((BRIDGE_COMPLETE.REGION_CODE)='QCSD' Or (BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<20));
+                          ")
+# close database
+close(myconn_hs)
+
+# # could use excel files since not complete in database
+# ## or add regions to link North Coast stocks
+# PID20200096_BCSI_B90(20)_sc242_2020-12-09.xlsx
+# PID20200096_BCSI_Batch_92(20)_sc40_2021-01-20.xlsx
+
+# find unique stocks and regions
+gsi_for_db <- gsi_orig %>%
+  filter(is.na(HS_REGION)) %>%
+  select(Species, STOCK_1, HS_REGION) %>%
+  distinct()
+
+# # write into csv to enter HS_REGIONS
+# write_csv(gsi_for_db, str_c(outputFolder, "gsi_for_db.csv"),
+#           na = "")
+
+# pull in high sea regions for new stocks from csv
+gsi_regions <- read_csv(str_c(outputFolder, "gsi_for_db.csv"),
+                        col_types = 
+                          cols(
+                            Species = col_character(),
+                            STOCK_1 = col_character(),
+                            STOCK_1_UPPER = col_character(),
+                            HS_REGION = col_character()
+                          ))
+                    
+#####################################
+# wrangle GSI data
+#####################################
+
 
 # #####################################
 # # use Kriging to see spatial distribution
