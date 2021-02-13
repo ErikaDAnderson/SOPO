@@ -882,43 +882,19 @@ ggsave(str_c("Output/2020/CTDgraphs/", eventNumber, ".png"))
 # estalish connection to high sea Access database
 myconn_hs <- odbcConnectAccess2007(db_hs)
 
-# get gsi data
+# get gsi data for Oct 2020
 # regions QCSD, HS, DE
 # fall only (SEP, OCT, NOV)
 # headrope depth <=20 m to omit deeper tows
-gsi_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.YEAR, BRIDGE_COMPLETE.REGION_CODE, BRIDGE_COMPLETE.HEAD_DEPTH, DNA_ALL_RESULTS_STOCKS.Species, BIOLOGICAL_JUNCTION.FISH_NUMBER, DNA_ALL_RESULTS_STOCKS.STOCK_FINAL, DNA_ALL_RESULTS_STOCKS.STOCK_1, DNA_ALL_RESULTS_STOCKS.PROB_1, DNA_ALL_RESULTS_STOCKS.STOCK_OVER50, DNA_STOCK_STOCK_FINAL_REGION.HS_REGION
-FROM (DNA_ALL_RESULTS_STOCKS INNER JOIN (BIOLOGICAL_JUNCTION INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) ON DNA_ALL_RESULTS_STOCKS.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER) LEFT JOIN DNA_STOCK_STOCK_FINAL_REGION ON DNA_ALL_RESULTS_STOCKS.STOCK_FINAL = DNA_STOCK_STOCK_FINAL_REGION.STOCK_FINAL
-WHERE (((BRIDGE_COMPLETE.YEAR)=2019 Or (BRIDGE_COMPLETE.YEAR)=2020) AND ((BRIDGE_COMPLETE.REGION_CODE)='QCSD' Or (BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<20));
-                          ")
+gsi_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.HEAD_DEPTH, SEASONS.SEASON, BRIDGE_COMPLETE.STATION_ID, BRIDGE_COMPLETE.REGION, BRIDGE_COMPLETE.REGION_CODE, DNA_ALL_RESULTS_STOCKS.Species, DNA_ALL_RESULTS_STOCKS.FISH_NUMBER, DNA_ALL_RESULTS_STOCKS.DNA_Method, DNA_ALL_RESULTS_STOCKS.STOCK_FINAL, DNA_ALL_RESULTS_STOCKS.PROB_1, DNA_STOCK_STOCK_FINAL_REGION.REP_UNIT_MGL, DNA_STOCK_STOCK_FINAL_REGION.CU, DNA_STOCK_STOCK_FINAL_REGION.CU_NAME, DNA_STOCK_STOCK_FINAL_REGION.PROV_STATE, DNA_STOCK_STOCK_FINAL_REGION.STOCK_REGION_MGL, DNA_ALL_RESULTS_STOCKS.COMMENT
+FROM SEASONS INNER JOIN (((DNA_ALL_RESULTS_STOCKS LEFT JOIN DNA_STOCK_STOCK_FINAL_REGION ON (DNA_ALL_RESULTS_STOCKS.STOCK_FINAL = DNA_STOCK_STOCK_FINAL_REGION.STOCK_FINAL) AND (DNA_ALL_RESULTS_STOCKS.Species = DNA_STOCK_STOCK_FINAL_REGION.SPECIES)) INNER JOIN BIOLOGICAL_JUNCTION ON DNA_ALL_RESULTS_STOCKS.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER) INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) ON SEASONS.MONTH = BRIDGE_COMPLETE.MONTH
+GROUP BY BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.HEAD_DEPTH, SEASONS.SEASON, BRIDGE_COMPLETE.STATION_ID, BRIDGE_COMPLETE.REGION, BRIDGE_COMPLETE.REGION_CODE, DNA_ALL_RESULTS_STOCKS.Species, DNA_ALL_RESULTS_STOCKS.FISH_NUMBER, DNA_ALL_RESULTS_STOCKS.DNA_Method, DNA_ALL_RESULTS_STOCKS.STOCK_FINAL, DNA_ALL_RESULTS_STOCKS.PROB_1, DNA_STOCK_STOCK_FINAL_REGION.REP_UNIT_MGL, DNA_STOCK_STOCK_FINAL_REGION.CU, DNA_STOCK_STOCK_FINAL_REGION.CU_NAME, DNA_STOCK_STOCK_FINAL_REGION.PROV_STATE, DNA_STOCK_STOCK_FINAL_REGION.STOCK_REGION_MGL, DNA_ALL_RESULTS_STOCKS.COMMENT
+HAVING (((BRIDGE_COMPLETE.Year)=2020) AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<20) AND ((DNA_ALL_RESULTS_STOCKS.Species)='CHUM'));
+              ")
+
 # close database
 close(myconn_hs)
 
-# # Amy will add regions to db for chum fromm MGL
-# # # could use excel files since not complete in database
-# # ## or add regions to link North Coast stocks
-# # PID20200096_BCSI_B90(20)_sc242_2020-12-09.xlsx
-# # PID20200096_BCSI_Batch_92(20)_sc40_2021-01-20.xlsx
-# 
-# # find unique stocks and regions
-# gsi_for_db <- gsi_orig %>%
-#   filter(is.na(HS_REGION)) %>%
-#   select(Species, STOCK_1, HS_REGION) %>%
-#   distinct()
-# 
-# # # write into csv to enter HS_REGIONS
-# # write_csv(gsi_for_db, str_c(outputFolder, "gsi_for_db.csv"),
-# #           na = "")
-# 
-# # pull in high sea regions for new stocks from csv
-# gsi_regions <- read_csv(str_c(outputFolder, "gsi_for_db.csv"),
-#                         col_types = 
-#                           cols(
-#                             Species = col_character(),
-#                             STOCK_1 = col_character(),
-#                             STOCK_1_UPPER = col_character(),
-#                             HS_REGION = col_character()
-#                           ))
-                    
 #####################################
 # wrangle GSI data
 #####################################
@@ -926,17 +902,41 @@ close(myconn_hs)
 # only chinook and chum complete
 # chinook only one in Hecate Strait so only chum in fig
 
-# #####################################
-# # use Kriging to see spatial distribution
-# #####################################
-# # folder name for Kriging outputs
-# OutputKriging <- str_c(outputFolder, "Kriging", Sys.Date())
-# 
-# # create directory for plots
-# dir.create(OutputKriging)
-# 
-# 
-# # need grid for Kriging
-# saFilename <- here::here("Input/Spatial/ipes_wgs84.tif")
+gsi_reg <- gsi_orig %>%
+  group_by(REGION_CODE, CU_NAME) %>%
+  count() %>%
+  filter(!(is.na(CU_NAME))) 
 
+gsi_reg$CU_NAME <- factor(gsi_reg$CU_NAME,
+                          levels = c("Coastal_Washington", "Hood Canal",
+                                     "Lower Fraser", "Georgia Strait",
+                                     "Southwest Vancouver Island", "Northwest Vancouver Island", 
+                                     "Spiller-Fitz Hugh-Burke", "Hecate Lowlands",
+                                     "Douglas-Gardner", "Skidegate", "West Haida Gwaii",
+                                     "North Haida Gwaii", "Lower Skeena",
+                                     "Lower Nass", "SE_Alaska")
+)
+
+
+ggplot(gsi_reg, aes(CU_NAME, n)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~REGION_CODE, nrow = 1) +
+  coord_flip() +
+  labs(y = "Number of Chum GSI Samples",
+       x = "CU Name") +
+  scale_y_continuous(breaks = c(2,4,6,8,10, 12), labels = c(2,4,6,8,10, 12)) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(face = "bold", size = 14),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 14),
+    panel.grid.minor.y = element_blank(), 
+    panel.background = element_rect(fill = "white",colour = "black"),
+    strip.background = element_rect(fill = "white")) 
+
+
+# expand propotion of gsi samples to tows?
+
+#####################################
+# map for where fished?
 #####################################
