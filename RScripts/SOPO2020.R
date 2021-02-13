@@ -25,6 +25,8 @@ library(RODBC) # MS Access databases
 library(patchwork) # combine plots
 library(modelr) # models length to weight, residuals
 library(broom) # evaluate models
+library(oce) # load ctd data
+library(patchwork) # combine plots
 
 # library(viridis) # colors graphs
 # library(sf) # spatial manipulation (newer than sp) so works with ggplot2
@@ -734,7 +736,144 @@ ggplot(data = cal_all,
   facet_wrap(~SPECIES_CODE) +
   theme_bw()
 
-# historic samples show length to weight condition factor not correlated to ED
+# historic samples show length to weight condition factor not really correlated to ED
+
+#####################################
+# how does stomach data relate to condition factor?
+#####################################
+# estalish connection to high sea Access database
+# myconn_hs <- odbcConnectAccess2007(db_hs)
+# 
+# # get calorimetry data from high seas
+# # regions QCSD, HS, DE
+# # fall only (SEP, OCT, NOV)
+# # headrope depth <=20 m to omit deeper tows
+# stomach_orig <- sqlQuery(myconn_hs, "
+#                         ")
+# 
+# # close database
+# close(myconn_hs)
+
+
+#####################################
+# graph preliminary CTD data
+#####################################
+
+# function copied from Emily Chisholm on MS Teams R Gurus
+read.ctd.ios <- function(file){
+  
+  rawlines <- readLines(file)
+  # find end of header
+  eoh <- grep(rawlines, pattern = '*END OF HEADER')
+  dataStart <- eoh + 1
+  # split data and header
+  #rawdata <- rawlines[eoh +1:length(rawlines)]
+  rawheader <- rawlines[1:eoh]
+  
+  # get variable name lines
+  varnamelinestart <- grep(rawheader, pattern = '-1-')
+  varnames <- rawheader[varnamelinestart:(eoh-1)]
+  # parse out variable names
+  varnums <- strsplit(varnames[1], split = ' ')
+  
+  finalvarnames <- list()
+  for (i in 1:length(varnums[[1]])){
+    fullvarnum <- varnums[[1]][i]
+    
+    strlocation <- gregexpr(pattern =fullvarnum,varnames[1])
+    enstring <- strlocation[[1]][1]+nchar(fullvarnum)
+    rawvarname <- substr(varnames, start = strlocation[[1]][1], stop = enstring)
+    rawvarname <- paste0(rawvarname, collapse = '' )
+    varname <- gsub(rawvarname, pattern = fullvarnum, replacement = '')
+    varname <- gsub(varname, pattern = '!', replacement = '')
+    varname <- gsub(varname, pattern = '-', replacement = '')
+    varname <- gsub(varname, pattern = ' ', replacement = '')
+    finalvarnames[[i]] <- varname
+  }
+  
+  # get data into table (from oce::read.ODF)
+  data <- scan(file, what="character", skip=dataStart, quiet=TRUE)
+  data <- matrix(data, ncol=length(finalvarnames), byrow=TRUE)
+  data <- as.data.frame(data, stringsAsFactors=FALSE)
+  # name data columns
+  names(data) <- finalvarnames
+  # find salintiy and temperature vars if they have unique names
+  sal <- grep(finalvarnames, pattern = 'salinity', ignore.case = TRUE, value = TRUE)
+  temp <- grep(finalvarnames, pattern = 'temperature', ignore.case = TRUE, value = TRUE)
+  pres <- grep(finalvarnames, pattern = 'pressure', ignore.case = TRUE, value = TRUE)
+  if(length(sal) ==0 | length(temp) == 0 | length(pres) ==0){
+    stop('Could not identify temperature, salinity and pressure variables to convert to oce-ctd!')
+  }
+  # get into oce format
+  
+  ctd <- as.ctd(data, salinity = data[[sal]], temperature = data[[temp]], pressure = data[[pres]], conductivity = NA, scan = NA, time = NA)
+  # solution for when 'other' argument of as.ctd is deprecated (WARNING this creates duplicate data columns and may need ot be adjusted)
+  # otherVars<-  finalvarnames[!finalvarnames %in% c(sal, temp, pres)]
+  # for ( o in otherVars){
+  #   eval(parse(text = paste0("ctd <- oceSetData(ctd, name = '",o,"', value = data[['",o,"']])")))
+  # }
+  
+  # remove duplicate data?
+  ctd@data <- ctd@data[!names(ctd@data) %in% c(sal, temp, pres)]
+  
+  # put header info into oce-ctd
+  
+  ctd <-  oceSetMetadata(ctd, name = 'header', value = rawheader)
+  # TODO: Parse header into metadata slots
+  
+  return(ctd)
+}
+
+
+# create function to graph preliminary CTD files
+graphctdfn <- function(filename, read.ctd.ios) {
+
+# load example file
+ctd <- read.ctd.ios(filename)
+
+# pull out variable to graph
+ctdTemp <- as.numeric(ctd@data$temperature)
+ctdDepth <- as.numeric(ctd@data$Depth)
+ctdSalinity <- as.numeric(ctd@data$salinity)
+ctd_df <- data.frame(ctdTemp, ctdDepth, ctdSalinity)
+
+# replace -99.00 or -99.000 with NAs so they don't graph
+ctd_df <- ctd_df %>%
+  filter(ctdDepth > 0) %>%
+  mutate(ctdTemp = if_else(ctdTemp < 0, NA_real_, ctdTemp),
+         ctdSalinity = if_else(ctdSalinity < 0, NA_real_, ctdSalinity)) 
+
+
+tempGraph <- ggplot(ctd_df, aes(ctdTemp, ctdDepth,)) +
+  geom_point() +
+  scale_y_reverse() +
+  labs(x = "Temperature (C)",
+       y = "Depth (m)") +
+  theme_bw()
+
+salGraph <- ggplot(ctd_df, aes(ctdSalinity, ctdDepth,)) +
+  geom_point() +
+  scale_y_reverse() +
+  labs(x = "Salinity (PSS-78)",
+       y = "Depth (m)") +
+  theme_bw()
+
+eventNumber <- str_extract(filename, "2020-017-[0-9]+")
+
+ctdGraph <- tempGraph | salGraph
+finalgraph <- ctdGraph + plot_annotation(subtitle = eventNumber)
+ggsave(str_c("Output/2020/CTDgraphs/", eventNumber, ".png"))
+
+}
+
+# apply function to all ctd files
+  list.files(path = "./Input/2020/2020-017_CTD_prelim",
+             pattern = "*.ctdpre", 
+             full.names = T) %>% 
+  map_df(~graphctdfn(., read.ctd.ios)) 
+
+##NEED to FIX weird things happening with 0005 and 0012 with SBE 911
+  ## could just need to be cleaned still as this is prelim data so wait until final data
 
 #####################################
 # get GSI available data
@@ -754,35 +893,38 @@ WHERE (((BRIDGE_COMPLETE.YEAR)=2019 Or (BRIDGE_COMPLETE.YEAR)=2020) AND ((BRIDGE
 # close database
 close(myconn_hs)
 
-# # could use excel files since not complete in database
-# ## or add regions to link North Coast stocks
-# PID20200096_BCSI_B90(20)_sc242_2020-12-09.xlsx
-# PID20200096_BCSI_Batch_92(20)_sc40_2021-01-20.xlsx
-
-# find unique stocks and regions
-gsi_for_db <- gsi_orig %>%
-  filter(is.na(HS_REGION)) %>%
-  select(Species, STOCK_1, HS_REGION) %>%
-  distinct()
-
-# # write into csv to enter HS_REGIONS
-# write_csv(gsi_for_db, str_c(outputFolder, "gsi_for_db.csv"),
-#           na = "")
-
-# pull in high sea regions for new stocks from csv
-gsi_regions <- read_csv(str_c(outputFolder, "gsi_for_db.csv"),
-                        col_types = 
-                          cols(
-                            Species = col_character(),
-                            STOCK_1 = col_character(),
-                            STOCK_1_UPPER = col_character(),
-                            HS_REGION = col_character()
-                          ))
+# # Amy will add regions to db for chum fromm MGL
+# # # could use excel files since not complete in database
+# # ## or add regions to link North Coast stocks
+# # PID20200096_BCSI_B90(20)_sc242_2020-12-09.xlsx
+# # PID20200096_BCSI_Batch_92(20)_sc40_2021-01-20.xlsx
+# 
+# # find unique stocks and regions
+# gsi_for_db <- gsi_orig %>%
+#   filter(is.na(HS_REGION)) %>%
+#   select(Species, STOCK_1, HS_REGION) %>%
+#   distinct()
+# 
+# # # write into csv to enter HS_REGIONS
+# # write_csv(gsi_for_db, str_c(outputFolder, "gsi_for_db.csv"),
+# #           na = "")
+# 
+# # pull in high sea regions for new stocks from csv
+# gsi_regions <- read_csv(str_c(outputFolder, "gsi_for_db.csv"),
+#                         col_types = 
+#                           cols(
+#                             Species = col_character(),
+#                             STOCK_1 = col_character(),
+#                             STOCK_1_UPPER = col_character(),
+#                             HS_REGION = col_character()
+#                           ))
                     
 #####################################
 # wrangle GSI data
 #####################################
-
+# make figure of region of orgin of catch in three regions
+# only chinook and chum complete
+# chinook only one in Hecate Strait so only chum in fig
 
 # #####################################
 # # use Kriging to see spatial distribution
@@ -796,18 +938,5 @@ gsi_regions <- read_csv(str_c(outputFolder, "gsi_for_db.csv"),
 # 
 # # need grid for Kriging
 # saFilename <- here::here("Input/Spatial/ipes_wgs84.tif")
-# 
-# # load raster for study area to crop interpolation grid
-# sa <- raster(saFilename)
-# class(sa)
-# 
-# # convert to spatial point data frame
-# sa <- rasterToPoints(sa, spatial = TRUE)
-# class(sa)
-# 
-# # convert to pixel data frame
-# gridded(sa) = TRUE
-# class(sa)
-# 
-# # check grid
-# plot(sa)
+
+#####################################
