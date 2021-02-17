@@ -27,6 +27,7 @@ library(modelr) # models length to weight, residuals
 library(broom) # evaluate models
 library(oce) # load ctd data
 library(patchwork) # combine plots
+library(readxl) # read excel files for GSI
 
 # library(viridis) # colors graphs
 # library(sf) # spatial manipulation (newer than sp) so works with ggplot2
@@ -36,7 +37,7 @@ library(patchwork) # combine plots
 # library(data.table) # bind data frames together from list
 # library(raster) # load raster for grid (and predict function, alternative to gstat krige)
 # library(rcompanion) # confident intervals
-# library(readxl) # read excel files for GSI
+
 
 #####################################
 # database file path
@@ -72,7 +73,7 @@ WHERE (((BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE'
 close(myconn_hs)
 
 #####################################
-# wrangle high seas data
+# wrangle high seas catch data
 #####################################
 # # save all tows as csv to display in ArcMap to make a raster
 # write_csv(tows_hs_orig, file = str_c(outputFolder, "tows_hs_orig.csv"))
@@ -736,24 +737,7 @@ ggplot(data = cal_all,
   facet_wrap(~SPECIES_CODE) +
   theme_bw()
 
-# historic samples show length to weight condition factor not really correlated to ED
-
-#####################################
-# how does stomach data relate to condition factor?
-#####################################
-# estalish connection to high sea Access database
-# myconn_hs <- odbcConnectAccess2007(db_hs)
-# 
-# # get calorimetry data from high seas
-# # regions QCSD, HS, DE
-# # fall only (SEP, OCT, NOV)
-# # headrope depth <=20 m to omit deeper tows
-# stomach_orig <- sqlQuery(myconn_hs, "
-#                         ")
-# 
-# # close database
-# close(myconn_hs)
-
+# historic samples show length to weight condition factor not well correlated to ED
 
 #####################################
 # graph preliminary CTD data
@@ -876,7 +860,7 @@ ggsave(str_c("Output/2020/CTDgraphs/", eventNumber, ".png"))
   ## could just need to be cleaned still as this is prelim data so wait until final data
 
 #####################################
-# get GSI available data
+# get available GSI data
 #####################################
 
 # estalish connection to high sea Access database
@@ -886,28 +870,52 @@ myconn_hs <- odbcConnectAccess2007(db_hs)
 # regions QCSD, HS, DE
 # fall only (SEP, OCT, NOV)
 # headrope depth <=20 m to omit deeper tows
-gsi_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.HEAD_DEPTH, SEASONS.SEASON, BRIDGE_COMPLETE.STATION_ID, BRIDGE_COMPLETE.REGION, BRIDGE_COMPLETE.REGION_CODE, DNA_ALL_RESULTS_STOCKS.Species, DNA_ALL_RESULTS_STOCKS.FISH_NUMBER, DNA_ALL_RESULTS_STOCKS.DNA_Method, DNA_ALL_RESULTS_STOCKS.STOCK_FINAL, DNA_ALL_RESULTS_STOCKS.PROB_1, DNA_STOCK_STOCK_FINAL_REGION.REP_UNIT_MGL, DNA_STOCK_STOCK_FINAL_REGION.CU, DNA_STOCK_STOCK_FINAL_REGION.CU_NAME, DNA_STOCK_STOCK_FINAL_REGION.PROV_STATE, DNA_STOCK_STOCK_FINAL_REGION.STOCK_REGION_MGL, DNA_ALL_RESULTS_STOCKS.COMMENT
+gsi_cm_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.HEAD_DEPTH, SEASONS.SEASON, BRIDGE_COMPLETE.STATION_ID, BRIDGE_COMPLETE.REGION, BRIDGE_COMPLETE.REGION_CODE, DNA_ALL_RESULTS_STOCKS.Species, DNA_ALL_RESULTS_STOCKS.FISH_NUMBER, DNA_ALL_RESULTS_STOCKS.DNA_Method, DNA_ALL_RESULTS_STOCKS.STOCK_FINAL, DNA_ALL_RESULTS_STOCKS.PROB_1, DNA_STOCK_STOCK_FINAL_REGION.REP_UNIT_MGL, DNA_STOCK_STOCK_FINAL_REGION.CU, DNA_STOCK_STOCK_FINAL_REGION.CU_NAME, DNA_STOCK_STOCK_FINAL_REGION.PROV_STATE, DNA_STOCK_STOCK_FINAL_REGION.STOCK_REGION_MGL, DNA_ALL_RESULTS_STOCKS.COMMENT
 FROM SEASONS INNER JOIN (((DNA_ALL_RESULTS_STOCKS LEFT JOIN DNA_STOCK_STOCK_FINAL_REGION ON (DNA_ALL_RESULTS_STOCKS.STOCK_FINAL = DNA_STOCK_STOCK_FINAL_REGION.STOCK_FINAL) AND (DNA_ALL_RESULTS_STOCKS.Species = DNA_STOCK_STOCK_FINAL_REGION.SPECIES)) INNER JOIN BIOLOGICAL_JUNCTION ON DNA_ALL_RESULTS_STOCKS.FISH_NUMBER = BIOLOGICAL_JUNCTION.FISH_NUMBER) INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) ON SEASONS.MONTH = BRIDGE_COMPLETE.MONTH
 GROUP BY BRIDGE_COMPLETE.Year, BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.HEAD_DEPTH, SEASONS.SEASON, BRIDGE_COMPLETE.STATION_ID, BRIDGE_COMPLETE.REGION, BRIDGE_COMPLETE.REGION_CODE, DNA_ALL_RESULTS_STOCKS.Species, DNA_ALL_RESULTS_STOCKS.FISH_NUMBER, DNA_ALL_RESULTS_STOCKS.DNA_Method, DNA_ALL_RESULTS_STOCKS.STOCK_FINAL, DNA_ALL_RESULTS_STOCKS.PROB_1, DNA_STOCK_STOCK_FINAL_REGION.REP_UNIT_MGL, DNA_STOCK_STOCK_FINAL_REGION.CU, DNA_STOCK_STOCK_FINAL_REGION.CU_NAME, DNA_STOCK_STOCK_FINAL_REGION.PROV_STATE, DNA_STOCK_STOCK_FINAL_REGION.STOCK_REGION_MGL, DNA_ALL_RESULTS_STOCKS.COMMENT
 HAVING (((BRIDGE_COMPLETE.Year)=2020) AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<20) AND ((DNA_ALL_RESULTS_STOCKS.Species)='CHUM'));
               ")
 
+gsi_co_samples_orig <- sqlQuery(myconn_hs, "SELECT DNA_SAMPLES.BATCH, DNA_SAMPLES.BATCH_DNA_NUMBER, DNA_SAMPLES.DNA_NUMBER, DNA_SAMPLES.FISH_NUMBER, BRIDGE_COMPLETE.REGION_CODE
+FROM (BIOLOGICAL_JUNCTION INNER JOIN DNA_SAMPLES ON BIOLOGICAL_JUNCTION.FISH_NUMBER = DNA_SAMPLES.FISH_NUMBER) INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID
+WHERE (((DNA_SAMPLES.BATCH)=91));
+                                ")
+
 # close database
 close(myconn_hs)
+
+# coho in excel file 2021-02-16 so load from excel file
+gsi_co_orig <- read_excel("Input/2020/PID20200096_BCSI_B91(20)_sc270_2021-02-15.xlsx",
+                            sheet = "repunits_table_ids")
+
+gsi_repunits_orig <- read_excel("Input/2020/PID20200096_BCSI_B91(20)_sc270_2021-02-15.xlsx",
+                          sheet = "repunits_estimates",
+                          skip = 6)
 
 #####################################
 # wrangle GSI data
 #####################################
 # make figure of region of orgin of catch in three regions
-# only chinook and chum complete
-# chinook only one in Hecate Strait so only chum in fig
+# only chinook, chum, and coho complete
+# only three chinook so not included in figure, just text
+# chum and coho figures
+# limit to juveniles only with lw_hs dataframe
 
-gsi_reg <- gsi_orig %>%
+# chum first
+gsi_cm_reg <- gsi_cm_orig %>%
+  inner_join(., lw_hs,
+             by = c("REGION_CODE", "FISH_NUMBER")) %>% # join to limit to juveniles only
   group_by(REGION_CODE, CU_NAME) %>%
   count() %>%
-  filter(!(is.na(CU_NAME))) 
+  filter(!(is.na(CU_NAME))) %>%
+  mutate(REGION_CODE = case_when(
+    REGION_CODE == "DE" ~ "Dixon Entrance",
+    REGION_CODE == "HS" ~ "Hecate Strait",
+    REGION_CODE == "QCSD" ~ "Queen Charlotte Sound",
+    TRUE ~ NA_character_
+  ))
 
-gsi_reg$CU_NAME <- factor(gsi_reg$CU_NAME,
+gsi_cm_reg$CU_NAME <- factor(gsi_cm_reg$CU_NAME,
                           levels = c("Coastal_Washington", "Hood Canal",
                                      "Lower Fraser", "Georgia Strait",
                                      "Southwest Vancouver Island", "Northwest Vancouver Island", 
@@ -917,26 +925,102 @@ gsi_reg$CU_NAME <- factor(gsi_reg$CU_NAME,
                                      "Lower Nass", "SE_Alaska")
 )
 
-
-ggplot(gsi_reg, aes(CU_NAME, n)) +
+# graph chum
+gsi_cm_graph <- ggplot(gsi_cm_reg, aes(CU_NAME, n)) +
   geom_bar(stat = "identity") +
   facet_wrap(~REGION_CODE, nrow = 1) +
   coord_flip() +
-  labs(y = "Number of Chum GSI Samples",
-       x = "CU Name") +
+  labs(y = "",
+       x = "",
+       subtitle = "Chum Salmon") +
   scale_y_continuous(breaks = c(2,4,6,8,10, 12), labels = c(2,4,6,8,10, 12)) +
   theme_bw() +
   theme(
-    axis.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(face = "bold", size = 14),
+    axis.title = element_text(size = 14),
     axis.text = element_text(size = 12),
     strip.text = element_text(size = 14),
     panel.grid.minor.y = element_blank(), 
     panel.background = element_rect(fill = "white",colour = "black"),
     strip.background = element_rect(fill = "white")) 
+gsi_cm_graph
 
+# coho gsi
+# no adult coho in 2020 defined as < 400 m
+gsi_co <- gsi_co_orig %>%
+  mutate(DNA_NUMBER = as.numeric(str_extract(indiv, "[0-9]+$"))) %>%
+  left_join(., gsi_co_samples_orig, by = "DNA_NUMBER") %>%
+  left_join(., gsi_repunits_orig, by = c("repunit.1" = "repunit")) %>%
+  filter(prob.1 > 0.5) %>%
+  filter(REGION_CODE != "QCST") %>% # aborted tow
+  group_by(REGION_CODE, CU_NAME, Display_Order) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(CU_NAME = if_else(CU_NAME == "Southern Coastal Streams-Queen Charlotte Strait-Johnstone Strait-Southern Fjords", 
+                           "Southern Streams-Fjords-QCST-JS", CU_NAME),
+         REGION_CODE = case_when(
+             REGION_CODE == "DE" ~ "Dixon Entrance",
+             REGION_CODE == "HS" ~ "Hecate Strait",
+             REGION_CODE == "QCSD" ~ "Queen Charlotte Sound",
+             TRUE ~ NA_character_
+           ))
 
-# expand propotion of gsi samples to tows?
+# order north to south
+gsi_repunits_order <- gsi_repunits_orig %>%
+  select(Display_Order, CU_NAME) %>%
+  mutate(CU_NAME = if_else(CU_NAME == "Southern Coastal Streams-Queen Charlotte Strait-Johnstone Strait-Southern Fjords", 
+                           "Southern Streams-Fjords-QCST-JS", CU_NAME)) %>%
+  arrange(-Display_Order) %>%
+  right_join(., gsi_co, by = "CU_NAME") %>%
+  distinct(CU_NAME) %>%
+  pull(CU_NAME)
+
+gsi_co$CU_NAME <- factor(gsi_co$CU_NAME,
+                             levels = gsi_repunits_order)
+
+# graph coho
+gsi_co_graph <-  ggplot(gsi_co, aes(CU_NAME, n)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~REGION_CODE, nrow = 1) +
+  coord_flip() +
+  labs(y = "Number of GSI Samples",
+       x = "",
+       subtitle = "Coho Salmon") +
+  scale_y_continuous(breaks = c(2,4,6,8,10, 12), labels = c(2,4,6,8,10, 12)) +
+  theme_bw() +
+  theme(
+    plot.subtitle = element_text(face = "bold", size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 14),
+    panel.grid.minor.y = element_blank(), 
+    panel.background = element_rect(fill = "white",colour = "black"),
+    strip.background = element_rect(fill = "white")) 
+gsi_co_graph
+
+gsi_graphs <- gsi_cm_graph / gsi_co_graph
+gsi_graphs
+
+ggsave(str_c(outputFolder, "GSI_CM_CO", str_replace_all(Sys.Date(), "-", ""),".png"),
+       height = 8, units = "in")
 
 #####################################
-# map for where fished?
+# map where fished?
 #####################################
+#####################################
+# how does stomach data relate to condition factor?
+#####################################
+# estalish connection to high sea Access database
+# myconn_hs <- odbcConnectAccess2007(db_hs)
+# 
+# # get calorimetry data from high seas
+# # regions QCSD, HS, DE
+# # fall only (SEP, OCT, NOV)
+# # headrope depth <=20 m to omit deeper tows
+# stomach_orig <- sqlQuery(myconn_hs, "
+#                         ")
+# 
+# # close database
+# close(myconn_hs)
+#####################################
+
