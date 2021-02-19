@@ -69,6 +69,21 @@ FROM BRIDGE_COMPLETE
 WHERE (((BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.Month)='SEP' Or (BRIDGE_COMPLETE.Month)='OCT' Or (BRIDGE_COMPLETE.Month)='NOV') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20));
                          ")
 
+# get length weight data from high seas
+# regions QCSD, HS, DE
+# fall only (SEP, OCT, NOV)
+# headrope depth <=20 m to omit deeper tows
+lw_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.YEAR, BRIDGE_COMPLETE.MONTH, BRIDGE_COMPLETE.REGION_CODE, BIOLOGICAL_JUNCTION.FISH_NUMBER, BIOLOGICAL_ALL.SPECIES_CODE, BIOLOGICAL_ALL.SHIP_LENGTH, BIOLOGICAL_ALL.SHIP_WT
+FROM (BIOLOGICAL_JUNCTION INNER JOIN BIOLOGICAL_ALL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL_ALL.FISH_NUMBER) INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID
+WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20) AND ((BIOLOGICAL_ALL.SPECIES_CODE)='108' Or (BIOLOGICAL_ALL.SPECIES_CODE)='112' Or (BIOLOGICAL_ALL.SPECIES_CODE)='115' Or (BIOLOGICAL_ALL.SPECIES_CODE)='118' Or (BIOLOGICAL_ALL.SPECIES_CODE)='124'));
+                       ")
+
+
+stomach_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.CRUISE, BRIDGE_COMPLETE.REGION_CODE, BRIDGE_COMPLETE.HEAD_DEPTH, BCSI_STOMACH_CONTENTS.*
+FROM (BIOLOGICAL_JUNCTION INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID) INNER JOIN BCSI_STOMACH_CONTENTS ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BCSI_STOMACH_CONTENTS.FISH_NUMBER
+WHERE (((BRIDGE_COMPLETE.CRUISE)='2020017') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<20));
+  ")
+
 # close database
 close(myconn_hs)
 
@@ -347,25 +362,6 @@ ggsave(str_c(outputFolder, "CPUE_Regions2020", str_replace_all(Sys.Date(), "-", 
        height = 9, units = "in")
 
 #####################################
-# load length weight high seas data
-#####################################
-# estalish connection to high sea Access database
-myconn_hs <- odbcConnectAccess2007(db_hs)
-                      
-# get length weight data from high seas
-# regions QCSD, HS, DE
-# fall only (SEP, OCT, NOV)
-# headrope depth <=20 m to omit deeper tows
-lw_hs_orig <- sqlQuery(myconn_hs, "SELECT BRIDGE_COMPLETE.YEAR, BRIDGE_COMPLETE.MONTH, BRIDGE_COMPLETE.REGION_CODE, BIOLOGICAL_JUNCTION.FISH_NUMBER, BIOLOGICAL_ALL.SPECIES_CODE, BIOLOGICAL_ALL.SHIP_LENGTH, BIOLOGICAL_ALL.SHIP_WT
-FROM (BIOLOGICAL_JUNCTION INNER JOIN BIOLOGICAL_ALL ON BIOLOGICAL_JUNCTION.FISH_NUMBER = BIOLOGICAL_ALL.FISH_NUMBER) INNER JOIN BRIDGE_COMPLETE ON BIOLOGICAL_JUNCTION.STATION_ID = BRIDGE_COMPLETE.STATION_ID
-WHERE (((BRIDGE_COMPLETE.MONTH)='SEP' Or (BRIDGE_COMPLETE.MONTH)='OCT' Or (BRIDGE_COMPLETE.MONTH)='NOV') AND ((BRIDGE_COMPLETE.REGION_CODE)='DE' Or (BRIDGE_COMPLETE.REGION_CODE)='HS' Or (BRIDGE_COMPLETE.REGION_CODE)='QCSD') AND ((BRIDGE_COMPLETE.HEAD_DEPTH)<=20) AND ((BIOLOGICAL_ALL.SPECIES_CODE)='108' Or (BIOLOGICAL_ALL.SPECIES_CODE)='112' Or (BIOLOGICAL_ALL.SPECIES_CODE)='115' Or (BIOLOGICAL_ALL.SPECIES_CODE)='118' Or (BIOLOGICAL_ALL.SPECIES_CODE)='124'));
-                       ")
-
-
-# close database
-close(myconn_hs)
-
-#####################################
 # Length to weight residuals 
 #####################################
 # residuals over time series
@@ -386,7 +382,7 @@ lw_hs <- lw_hs_orig %>%
     SPECIES_CODE == 115 & SHIP_LENGTH < 400 ~ "J",
     TRUE ~ "A")) %>%
   filter(AGE == "J") %>%
-  rename(TRIP_YEAR = YEAR,
+  dplyr::rename(TRIP_YEAR = YEAR,
          LENGTH = SHIP_LENGTH,
          WEIGHT = SHIP_WT) %>%
   filter(!is.na(SPECIES_CODE)) %>%
@@ -427,7 +423,7 @@ anova(modLW_simp, modLW, modLW_Reg)
 # add residuals
 residsLW <- lw %>%
   add_residuals(., modLW) %>%
-  rename(Year = TRIP_YEAR,
+  dplyr::rename(Year = TRIP_YEAR,
          Residuals = resid) 
 
 # expand grid for zero years
@@ -445,7 +441,7 @@ lwCounts_fn <- function(df, speciesCode, yearGrid) {
   # calculate number of fish per year
     group_by(Year) %>%
     count() %>%
-    rename(PrelimCount = n) %>%
+    dplyr::rename(PrelimCount = n) %>%
     ungroup() %>%
     full_join(., yearGrid, by = "Year") %>%
     mutate(FinalCount = if_else(is.na(PrelimCount), as.integer(ZeroCount), PrelimCount)) %>%
@@ -537,7 +533,7 @@ ggsave(str_c(outputFolder, "LW_Chinook.png"))
 # add residuals and account for years without 
 residsLW_Reg <- lw %>%
   add_residuals(., modLW_Reg) %>%
-  rename(Year = TRIP_YEAR,
+  dplyr::rename(Year = TRIP_YEAR,
          Residuals = resid) 
 
 # expand grid for year without values to be represented on graph
@@ -720,7 +716,7 @@ cal_historic <- cal_historic_orig %>%
     LENGTH = SHIP_LENGTH,
     WEIGHT = SHIP_WT) %>%
   add_residuals(., modLW) %>%
-  rename(Residuals = resid) %>%
+  dplyr::rename(Residuals = resid) %>%
   dplyr::select(FISH_NUMBER, HEAT_RELEASED_KJ, Year, SPECIES_CODE, REGION_CODE, Residuals)
 
 residsLW <- lw %>%
@@ -1005,22 +1001,76 @@ ggsave(str_c(outputFolder, "GSI_CM_CO", str_replace_all(Sys.Date(), "-", ""),".p
        height = 8, units = "in")
 
 #####################################
-# map where fished?
-#####################################
-#####################################
-# how does stomach data relate to condition factor?
-#####################################
-# estalish connection to high sea Access database
-# myconn_hs <- odbcConnectAccess2007(db_hs)
-# 
-# # get calorimetry data from high seas
-# # regions QCSD, HS, DE
-# # fall only (SEP, OCT, NOV)
-# # headrope depth <=20 m to omit deeper tows
-# stomach_orig <- sqlQuery(myconn_hs, "
-#                         ")
-# 
-# # close database
-# close(myconn_hs)
+# how does stomach prey volume relate to condition factor 
 #####################################
 
+stomach <- stomach_orig %>%
+  separate(., FISH_NUMBER, into = c("Program", "Survey", "Station", "SPECIES_CODE", "FishNum"),
+           remove = FALSE) %>%
+  filter(SPECIES_CODE %in% c("108J", "112J", "115J", "118J", "124J")) %>%
+  mutate(EMPTY = if_else(`1-PREY_CODE` == "M002", "Y", "N")) %>%
+  mutate(TOTAL_VOLUME = select(., c(`1-VOLUME`, `2-VOLUME`, `3-VOLUME`)) %>% 
+           rowSums(na.rm = TRUE)) %>%
+  select(SPECIES_CODE, REGION_CODE, TOTAL_VOLUME, EMPTY, FISH_NUMBER) %>%
+  mutate(speciesName = case_when(
+    SPECIES_CODE == "108J" ~ "Pink",
+    SPECIES_CODE == "112J" ~ "Chum",
+    SPECIES_CODE == "115J" ~ "Coho",
+    SPECIES_CODE == "118J" ~ "Sockeye",
+    SPECIES_CODE == "124J" ~ "Chinook"))
+
+# boxplot
+ggplot(stomach, aes(speciesName, TOTAL_VOLUME)) +
+  geom_boxplot(fill = "darkred") +
+  facet_wrap(~REGION_CODE, ncol = 1) +
+  theme(panel.grid.minor.y = element_blank(), 
+        panel.background = element_rect(fill = "white",colour = "black"), 
+        title = element_text(face = "bold", size = 14),
+        strip.background = element_rect(fill = "white"),
+        axis.text = element_text(size = 12),
+        strip.text = element_text(size = 14)) +
+  labs(y = "Prey Volume in Stomach",
+       x = "Species") +
+  ylim(0, 5)
+
+ggsave(str_c(outputFolder, "StomachBoxplot", str_replace_all(Sys.Date(), "-", ""),".png"),
+       height = 6, units = "in")
+
+# wrangle data for bar graph with error bars
+# calculate mean and sd for each species and region combination
+stomachSE <- stomach %>%
+  group_by(speciesName, SPECIES_CODE, REGION_CODE) %>%
+  summarise(mean = mean(TOTAL_VOLUME, na.rm = TRUE),
+         sd = sd(TOTAL_VOLUME, na.rm = TRUE),
+         .groups = "drop") %>%
+  mutate(sd = if_else(is.na(sd), 0, sd)) 
+
+# bar graph
+ggplot(data = filter(stomachSE, speciesName != "Chinook"),
+              aes(x = REGION_CODE, y = mean)) + 
+  geom_bar(stat = "identity", color = "black", 
+           position=position_dodge()) +
+  geom_errorbar(aes(ymin = mean, ymax = mean + sd), width = .2,
+                position = position_dodge(.9)) +
+  facet_wrap(~speciesName, scales = "free_y") 
+
+# #####################################
+# # correlation between condition and stomach
+# #####################################
+# 
+# corr <- residsLW_Reg %>%
+#   mutate(SPECIES_CODE = str_c(SPECIES_CODE, "J")) %>%
+#   group_by(SPECIES_CODE, REGION_CODE) %>%
+#   summarize(meanResid = mean(Residuals, na.rm = TRUE),
+#             .groups = "drop") %>%
+#   inner_join(., stomachSE, by = c("SPECIES_CODE", "REGION_CODE"))
+#   
+#   ggplot(corr,
+#          aes(mean, meanResid, color = SPECIES_CODE)) +
+#   geom_point() +
+#   geom_smooth(method = "lm") +
+#     xlim(0, 5)
+
+#####################################
+# map where fished?
+#####################################
