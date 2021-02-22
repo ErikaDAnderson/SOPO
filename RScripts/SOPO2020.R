@@ -28,15 +28,14 @@ library(broom) # evaluate models
 library(oce) # load ctd data
 library(patchwork) # combine plots
 library(readxl) # read excel files for GSI
-
-# library(viridis) # colors graphs
-# library(sf) # spatial manipulation (newer than sp) so works with ggplot2
-# library(sp) # spatial data manipulation
-# library(rgdal) # to load shapefiles and rasters
+library(sf) # spatial manipulation (newer than sp) so works with ggplot2
+library(sp) # spatial data manipulation
+library(rgdal) # to load shapefiles and rasters
 # library(gstat) # model fit & Krige interpolation
 # library(data.table) # bind data frames together from list
 # library(raster) # load raster for grid (and predict function, alternative to gstat krige)
 # library(rcompanion) # confident intervals
+# library(viridis) # colors graphs
 
 
 #####################################
@@ -1072,5 +1071,69 @@ ggplot(data = filter(stomachSE, speciesName != "Chinook"),
 #     xlim(0, 5)
 
 #####################################
-# map where fished?
+# map where fished and how much caught
+#####################################
+
+# limit cpue data to this year
+df2020 <- cpue %>%
+  filter(TRIP_YEAR == 2020) %>%
+  filter(REGION_CODE != "QCSD") %>% # remove aborted tow in QCSD
+  mutate(speciesCol = case_when(
+    SPECIES_CODE == "108J" ~ "Pink",
+    SPECIES_CODE == "112J" ~ "Chum",
+    SPECIES_CODE == "115J" ~ "Coho",
+    SPECIES_CODE == "118J" ~ "Sockeye",
+    SPECIES_CODE == "124J" ~ "Chinook"))
+
+# find min and max lat and longs for limits to basemap
+minLat <- min(df2020$START_LAT) - 0.5
+maxLat <- max(df2020$START_LAT) + 0.5
+minLon <- min(df2020$START_LONG) - 0.5 # adjusted so HG not cut off
+maxLon <- max(df2020$START_LONG) + 0.5
+
+df2020zero <- df2020 %>%
+  filter(CPUE == 0)
+
+df2020positive <- df2020 %>%
+  filter(CPUE > 0)
+
+
+# load basemap from coastal shapefile
+coast <- readOGR("Input/Spatial/Land.shp", verbose = FALSE)
+
+# basemap
+basemap <- ggplot() +
+  geom_path(data = coast, aes(x = long, y = lat, group = group)) +
+  coord_equal() +
+  xlim(minLon, maxLon) +
+  ylim(minLat, maxLat) +
+  labs(x = "Longitude",
+       y = "Laititude") +
+  # # add scale bar using https://stevemorse.org/nearest/distance.php
+  # geom_segment(aes(x = -127.7, y = 48.5, xend = -127.56375, yend = 48.5), size = 2) +
+  # geom_segment(aes(x = -127.56375, y = 48.5, xend = -127.4275, yend = 48.5), size = 2, color = "grey") +
+  # geom_segment(aes(x = -127.4275, y = 48.5, xend = -127.29125, yend = 48.5), size = 2) +
+  # geom_text(aes(-127.5, 48.6), label = "30 km") +
+  theme_bw() 
+basemap
+
+# add data
+basemap +
+  geom_point(data = df2020zero,
+             aes(START_LONG, START_LAT),
+             shape = 3) +
+  geom_point(data = df2020positive,
+             aes(x = START_LONG, y = START_LAT, 
+                 size = CPUE),
+             color = "darkred") +
+  facet_wrap(~speciesCol) +
+  theme_bw() +
+  theme(legend.position = c(.85,.2),
+          axis.title = element_text(face = "bold", size = 14),
+          strip.text = element_text(size = 14),
+          panel.grid.minor.y = element_blank(), 
+          panel.background = element_rect(fill = "white",colour = "black"),
+          strip.background = element_rect(fill = "white"))
+
+
 #####################################
