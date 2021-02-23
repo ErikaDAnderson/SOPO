@@ -31,11 +31,6 @@ library(readxl) # read excel files for GSI
 library(sf) # spatial manipulation (newer than sp) so works with ggplot2
 library(sp) # spatial data manipulation
 library(rgdal) # to load shapefiles and rasters
-# library(gstat) # model fit & Krige interpolation
-# library(data.table) # bind data frames together from list
-# library(raster) # load raster for grid (and predict function, alternative to gstat krige)
-# library(rcompanion) # confident intervals
-# library(viridis) # colors graphs
 
 
 #####################################
