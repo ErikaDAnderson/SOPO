@@ -1074,10 +1074,12 @@ ggplot(data = filter(stomachSE, speciesName != "Chinook"),
 # map where fished and how much caught
 #####################################
 
+options(scipen = 999)
+
 # limit cpue data to this year
 df2020 <- cpue %>%
   filter(TRIP_YEAR == 2020) %>%
-  filter(REGION_CODE != "QCSD") %>% # remove aborted tow in QCSD
+  filter(REGION_CODE != "QCST") %>% # remove aborted tow in QCSD
   mutate(speciesCol = case_when(
     SPECIES_CODE == "108J" ~ "Pink",
     SPECIES_CODE == "112J" ~ "Chum",
@@ -1088,7 +1090,7 @@ df2020 <- cpue %>%
 # find min and max lat and longs for limits to basemap
 minLat <- min(df2020$START_LAT) - 0.5
 maxLat <- max(df2020$START_LAT) + 0.5
-minLon <- min(df2020$START_LONG) - 0.5 # adjusted so HG not cut off
+minLon <- min(df2020$START_LONG) - 0.5
 maxLon <- max(df2020$START_LONG) + 0.5
 
 df2020zero <- df2020 %>%
@@ -1108,7 +1110,7 @@ basemap <- ggplot() +
   xlim(minLon, maxLon) +
   ylim(minLat, maxLat) +
   labs(x = "Longitude",
-       y = "Laititude") +
+       y = "Latitude") +
   # # add scale bar using https://stevemorse.org/nearest/distance.php
   # geom_segment(aes(x = -127.7, y = 48.5, xend = -127.56375, yend = 48.5), size = 2) +
   # geom_segment(aes(x = -127.56375, y = 48.5, xend = -127.4275, yend = 48.5), size = 2, color = "grey") +
@@ -1128,12 +1130,16 @@ basemap +
              color = "darkred") +
   facet_wrap(~speciesCol) +
   theme_bw() +
+  labs(size = "Juveniles \n per km3") +
   theme(legend.position = c(.85,.2),
           axis.title = element_text(face = "bold", size = 14),
           strip.text = element_text(size = 14),
           panel.grid.minor.y = element_blank(), 
           panel.background = element_rect(fill = "white",colour = "black"),
           strip.background = element_rect(fill = "white"))
+
+ggsave(str_c(outputFolder, "mapCPUE2020_", str_replace_all(Sys.Date(), "-", ""),".png"),
+       width = 7.5, units = "in")
 
 
 #####################################
