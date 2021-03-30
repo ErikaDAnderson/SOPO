@@ -10,6 +10,7 @@
 # to address questions about target head rope depth of 0 or 15 m for chinook
 # JK would like to see CPUE by region for 15 m only for chinook 
 # graph chinook caught by region and depth for fun 
+# JK updated request for CPUE anomalies without depth limit on head rope
 #
 #=====================================================================================================
 
@@ -249,6 +250,8 @@ cpue_Reg16 <- headDepthFn(cpue, anomFn, 16, 0)
 cpue_Reg20 <- headDepthFn(cpue, anomFn, 20, 0)
 # try 10-20 m 
 cpue_Reg19_20 <- headDepthFn(cpue, anomFn, 20, 10)
+# try without limit on head rope depth
+cpue_Reg_nolimit <- headDepthFn(cpue, anomFn, 100, 0)
 
 # graph function
 cpueGraphFN <- function(df, regionName) {
@@ -339,6 +342,8 @@ cpueGraphFN2(cpue_Reg9, cpueGraphFN, "9")
 cpueGraphFN2(cpue_Reg16, cpueGraphFN, "16")
 cpueGraphFN2(cpue_Reg20, cpueGraphFN, "20")
 
+
+
 # try another way when facets are not all represented
 #cpueGraphFN2(cpue_Reg19_20, cpueGraphFN, "10-20")
 
@@ -352,6 +357,12 @@ cpueRegions <- cpueHS / cpueQCSD
 
 ggsave(str_c(outputFolder, "CPUE_Regions2020_10-20_", str_replace_all(Sys.Date(), "-", ""),".png"),
        height = 6, units = "in")
+
+# create plots for no limit
+cpueHSnolimit <- cpueGraphFN(cpue_Reg_nolimit, "HS") 
+
+ggsave(str_c(outputFolder, "CPUE_Regions2020_no_limits_", str_replace_all(Sys.Date(), "-", ""),".png"),
+       height = 4, units = "in")
 
 ###########################################
 # graph chinook by depth and region
